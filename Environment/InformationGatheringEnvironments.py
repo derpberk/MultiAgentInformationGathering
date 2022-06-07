@@ -1,7 +1,7 @@
 import gym
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 import numpy as np
-from sklearn.gaussian_process.kernels import RBF
+from sklearn.gaussian_process.kernels import RBF, ConstantKernel
 from sklearn.gaussian_process import GaussianProcessRegressor
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
@@ -55,7 +55,7 @@ class QuadcopterAgent:
 		self.distance = 0
 		self._ground_truth_field = agent_config['ground_truth_field']
 		self.dt = agent_config['dt']
-
+		self.collision = False
 		self.fig = None
 
 	@property
@@ -67,46 +67,57 @@ class QuadcopterAgent:
 		self._ground_truth_field = new_value
 
 	def go_to_next_waypoint_relative(self, angle, distance):
-		""" Set the next waypoint relative to the current position """
+		""" Set the next waypoint relative to the current position.
+		 Return True if feasible, False otherwise. """
 
+		# Compute the next attemted position
 		next_attempted_wp = self.position + distance * np.asarray([np.cos(angle), np.sin(angle)])
 		# Check if the next wp is navigable
 		valid = self.check_movement_feasibility(next_attempted_wp)
 
+		# If the WP is not valid, end the action
 		if not valid:
-			return 0
 
 			self.wp_reached = True
 			self.next_wp = np.copy(self.position)
+			self.collision = True # Set the collision state
 
+			return True
+
+		# If the WP is acceptable, set the target
 		self.next_wp = next_attempted_wp
 		self.director_vector = (self.next_wp - self.position) / np.linalg.norm(self.next_wp - self.position)
 		self.wp_reached = False
+		self.collision = False
 
-		return 1
+		return False
 
 	def stop_go_to(self):
 		""" Interrupt the current waypoint """
-		next_attempted_wp = self.position
+		self.next_wp = self.position
 		self.wp_reached = True
 
 	def step(self):
-		""" Take 1 step  """
+		""" Integrate the speed to obtain the next position  """
 
-		if not self.wp_reached:
+		# If the WP is not reached, and not in a collision state, compute the dynamic
+		if not self.wp_reached and not self.collision:
+
 			# Compute the new position #
 			d_pos = self.speed * self.director_vector * self.dt
 			self.distance += np.linalg.norm(d_pos)
 
+			# Check if the new position is feasible
 			if self.check_movement_feasibility(self.position + d_pos):
-				# Check if there is any collisions #
 				self.position = self.position + d_pos
+				self.collision = False
 			else:
 				# If indeed there is a collision, stop and update the measurement #
 				self.illegal_movements += 1
 				self.wp_reached = True
 				self.measurement = self.take_measurement()
 				self.next_wp = np.copy(self.position)  # Set the next_wp in the pre-collision position #
+				self.collision = True
 
 			if np.linalg.norm(self.position - self.next_wp) < np.linalg.norm(d_pos) and not self.wp_reached:
 				self.wp_reached = True
@@ -115,7 +126,8 @@ class QuadcopterAgent:
 
 		self.done = self.illegal_movements >= self.max_illegal_movements or self.distance > self.max_distance
 
-		return {'data': self.measurement, 'position': self.position}, self.done
+		# Return the data, the position, the end-mission condition and the collision state #
+		return {'data': self.measurement, 'position': self.position}, self.done, self.collision
 
 	def check_movement_feasibility(self, pos):
 		""" Check if the movement is possible with the current navigation map.
@@ -157,6 +169,7 @@ class QuadcopterAgent:
 		self.illegal_movements = 0
 		self.wp_reached = True
 		self.next_wp = np.copy(self.position)
+		self.collision = False
 
 		return {'data': self.measurement, 'position': self.position}
 
@@ -201,7 +214,7 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 		for _ in range(env_config['number_of_agents']):
 			self.spawn_agent()
 
-		self.dones = [False] * env_config['number_of_agents']
+		self.dones = None
 		# List of ready agents #
 		self.agents_ready = [True] * env_config['number_of_agents']
 
@@ -216,9 +229,10 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 		self.valids = [None] * env_config['number_of_actions']
 		self.rewards = {}
 		self.states = {}
+		self.infos = {}
 
 		""" Regression related values """
-		self.kernel = RBF(length_scale=env_config['kernel_length_scale'], length_scale_bounds=(0.1, 10))
+		self.kernel = ConstantKernel(constant_value=1.0, constant_value_bounds='fixed') * RBF(length_scale=env_config['kernel_length_scale'], length_scale_bounds=(0.01, 2))
 		self.GaussianProcess = GaussianProcessRegressor(kernel=self.kernel, n_restarts_optimizer=20, alpha=0.05)
 		self.measured_values = None
 		self.measured_locations = None
@@ -244,7 +258,11 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 
 		assert self.resetted, "You need to call env.reset() first!"
 
+		collisions = [False] * self.env_config['number_of_agents']
+
+		# Set mission for every
 		for i, agent in self.agents.items():
+
 			action = action_dict[i]
 
 			# Transfor discrete action into an angle
@@ -253,24 +271,28 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 			# Schedule every waypoint
 			agent.go_to_next_waypoint_relative(angle=ang, distance=self.env_config['meas_distance'])
 
+		# Time to move the agents!
 		# Move environment until all target positions are reached
-		wp_reached_vec = [False] * self.env_config['number_of_agents']
+		wp_reached_vec = [agent.wp_reached for agent in self.agents.values()]
 
 		while not all(wp_reached_vec):
 
 			# One step per agent
 			for i, agent in self.agents.items():
 
-				meas, ended = agent.step()
+				# Process the movement of the agent
+				# Note that internally, nothing is done if the agent is in collision state #
+				meas, ended, collision = agent.step()
 
 				# Check if reached
 				if agent.wp_reached and not wp_reached_vec[i]:
+
+					# If the agent reached the waypoint...
 					wp_reached_vec[i] = True
 					self.measurements[i] = meas  # Copy measurement if so
 
-					# Check if end of mission
-					if ended:
-						self.dones[i] = True
+					# Check end-of-mission
+					self.dones[i] = ended
 
 			self.render()
 
@@ -287,7 +309,7 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 		self.dones = {i: self.agents[i].done for i in self._agent_ids}
 
 
-		return self.states, self.rewards, self.dones, {}
+		return self.states, self.rewards, self.dones, {'collisions': [agent.collision for agent in self.agents.values()]}
 
 	def update_model(self):
 
@@ -364,6 +386,8 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 
 		self.resetted = True
 
+		self.dones = {i: False for i in self.agents.keys()}
+
 		# Reset the vehicles and take the first measurements #
 		self.measurements = {i: agent.reset() for i, agent in self.agents.items()}
 
@@ -373,23 +397,26 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 		# Update the states
 		self.states = self.update_states()
 
+
 		return self.states
 
 	def render(self):
 
 		if self.fig is None:
 
-			self.fig, self.axs = plt.subplots(1, 2)
+			self.fig, self.axs = plt.subplots(1, 3)
 
 			self.axs[0].imshow(self.env_config['navigation_map'], cmap='gray')
 			self.d_pos, = self.axs[0].plot([agent.position[1] for agent in self.agents.values()], [agent.position[0] for agent in self.agents.values()], 'rx')
-			self.d_mu = self.axs[1].imshow(self.mu, cmap='jet')
+			self.d_mu = self.axs[1].imshow(self.mu, cmap='jet', vmin=0, vmax=1)
+			self.d_unc = self.axs[2].imshow(self.uncertainty, cmap = 'gray_r')
 
 		else:
 
 			self.d_pos.set_xdata([agent.position[1] for agent in self.agents.values()])
 			self.d_pos.set_ydata([agent.position[0] for agent in self.agents.values()])
 			self.d_mu.set_data(self.mu)
+			self.d_unc.set_data(self.uncertainty)
 
 			self.fig.canvas.draw()
 
@@ -431,14 +458,14 @@ class AsyncronousMultiAgentIGEnvironment(SynchronousMultiAgentIGEnvironment, Mul
 			self.agents[i].go_to_next_waypoint_relative(angle=ang, distance=dist)
 
 		# Move environment until at least one agent have finished its action
-		wp_reached_vec = [False] * self.env_config['number_of_agents']
+		wp_reached_vec = [agent.wp_reached for agent in self.agents.values()]
 
 		while not any(wp_reached_vec):
 
 			# One step per agent
 			for i, agent in self.agents.items():
 
-				meas, ended = agent.step()
+				meas, ended, collision = agent.step()
 
 				# Check if reached
 				if agent.wp_reached and not wp_reached_vec[i]:
@@ -449,12 +476,12 @@ class AsyncronousMultiAgentIGEnvironment(SynchronousMultiAgentIGEnvironment, Mul
 					self.rewards[i] = self.reward_function()
 
 			env.render()
-			plt.pause(0.1)
+			plt.pause(0.001)
 
 		self.dones = {i: agent.done for i, agent in self.agents.items()}
 
 
-		return self.states, self.rewards, self.dones, {}
+		return self.states, self.rewards, self.dones, {'collisions': [agent.collision for agent in self.agents.values()]}
 
 
 if __name__ == '__main__':
@@ -469,7 +496,7 @@ if __name__ == '__main__':
 	     [0.75, 0.25],
 	     [0.75, 0.75]]
 
-	C = [0.005, 0.002, 0.002, 0.002, 0.002]
+	C = [0.002, 0.002, 0.002, 0.002, 0.002]
 
 
 	def shekel_arg0(sol):
@@ -492,7 +519,7 @@ if __name__ == '__main__':
 
 
 	agent_config = {'navigation_map': navigation_map,
-	                'mask_size': (0, 0),
+	                'mask_size': (1, 1),
 	                'initial_position': None,
 	                'speed': 2,
 	                'max_illegal_movements': 10,
@@ -503,10 +530,10 @@ if __name__ == '__main__':
 
 	my_env_config = {'number_of_agents': 3,
 	                 'number_of_actions': 8,
-	                 'kernel_length_scale': 0.2,
+	                 'kernel_length_scale': 3,
 	                 'agent_config': agent_config,
 	                 'navigation_map': navigation_map,
-	                 'meas_distance': 1,
+	                 'meas_distance': 2,
 	                 'initial_positions': np.array([[21,14],[30,16],[36,41]]),
 	                 'max_meas_distance': 5,
 	                 'min_meas_distance': 1
@@ -520,16 +547,22 @@ if __name__ == '__main__':
 
 	dones = [False] * 4
 
+	idx = 0
+	action = {i: env.action_space.sample() for i in env._agent_ids if i in s.keys()}
 
 	while not all(dones):
 
-		action = {i: env.action_space.sample() for i in env._agent_ids if i in s.keys()}
 
+		idx+=1
 
 		agents_ready_for_action = [i for i in s.keys()]
 		print("The agents", agents_ready_for_action, "are ready for action!")
 
-		s, r, dones, _ = env.step(action)
+		s, r, dones, infos = env.step(action)
+
+		print(f"Agent colliding: {infos['collisions']}")
+
+		action = {i: env.action_space.sample() if infos['collisions'][i] else action[i] for i in env._agent_ids}
 
 		dones = list(dones.values())
 
