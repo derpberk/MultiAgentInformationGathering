@@ -6,8 +6,8 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
-class QuadcopterAgent:
 
+class QuadcopterAgent:
 	_action_types = ['CartesianDiscrete', 'AngleAndDistance']
 
 	agent_config_template = {'navigation_map': None,
@@ -19,17 +19,22 @@ class QuadcopterAgent:
 	                         'ground_truth_field': None,
 	                         'dt': None}
 
-	def __init__(self, agent_config: dict, agent_id):
+	def __init__(self, agent_config: dict, agent_id, initial_position = None):
 
 		""" Quadcopter Agent Class:
 		 Serves as an abstract class for the vehicle movement processing.
 		 It defines the individual mesurement process.  """
 
+		self.done = None
 		self.agent_id = agent_id
 		self.navigation_map = agent_config['navigation_map']
 
 		self.visitable_positions = np.column_stack(np.where(self.navigation_map == 1))
-		self.initial_position = agent_config['initial_position']
+
+		if initial_position is not None:
+			self.initial_position = initial_position
+		else:
+			self.initial_position = agent_config['initial_position']
 
 		# A dictionary with the action parameters #
 		# Initial position #
@@ -56,7 +61,7 @@ class QuadcopterAgent:
 	@property
 	def ground_truth_field(self):
 		return self._ground_truth_field
-	
+
 	@ground_truth_field.setter
 	def ground_truth_field(self, new_value):
 		self._ground_truth_field = new_value
@@ -69,14 +74,13 @@ class QuadcopterAgent:
 		valid = self.check_movement_feasibility(next_attempted_wp)
 
 		if not valid:
-
 			return 0
 
 			self.wp_reached = True
 			self.next_wp = np.copy(self.position)
 
 		self.next_wp = next_attempted_wp
-		self.director_vector = (self.next_wp - self.position)/np.linalg.norm(self.next_wp - self.position)
+		self.director_vector = (self.next_wp - self.position) / np.linalg.norm(self.next_wp - self.position)
 		self.wp_reached = False
 
 		return 1
@@ -96,46 +100,52 @@ class QuadcopterAgent:
 
 			if self.check_movement_feasibility(self.position + d_pos):
 				# Check if there is any collisions #
-				self.position =  self.position + d_pos
+				self.position = self.position + d_pos
 			else:
 				# If indeed there is a collision, stop and update the measurement #
 				self.illegal_movements += 1
 				self.wp_reached = True
 				self.measurement = self.take_measurement()
-				self.next_wp = np.copy(self.position) # Set the next_wp in the pre-collision position #
+				self.next_wp = np.copy(self.position)  # Set the next_wp in the pre-collision position #
 
 			if np.linalg.norm(self.position - self.next_wp) < np.linalg.norm(d_pos) and not self.wp_reached:
-
 				self.wp_reached = True
 				self.next_wp = np.copy(self.position)
 				self.measurement = self.take_measurement()
 
-		done = self.illegal_movements >= self.max_illegal_movements or self.distance > self.max_distance
+		self.done = self.illegal_movements >= self.max_illegal_movements or self.distance > self.max_distance
 
-		return {'data': self.measurement, 'position': self.position}, done
+		return {'data': self.measurement, 'position': self.position}, self.done
 
 	def check_movement_feasibility(self, pos):
 		""" Check if the movement is possible with the current navigation map.
 			This method should be overriden when using the real deploy agent. """
-		visitable = self.navigation_map[int(pos[0]), int(pos[1])] == 1
-		in_bounds = all(pos <=self.navigation_map.shape) and all(pos > 0)
 
-		return visitable and in_bounds
+		in_bounds = all(pos <= self.navigation_map.shape) and all(pos > 0)
 
-	def take_measurement(self, pos = None):
+		if in_bounds:
+			return self.navigation_map[int(pos[0]), int(pos[1])] == 1
+		else:
+			return False
+
+	def take_measurement(self, pos=None):
 
 		if pos is None:
 			pos = self.position
 
 		pos = pos.astype(int)
 
-		measurement_mask = self._ground_truth_field[pos[0] - self.mask_size[0]: pos[0] + self.mask_size[0] + 1,
-		                                            pos[1] - self.mask_size[1]: pos[1] + self.mask_size[1] + 1]
+		upp_lims = np.clip(pos + self.mask_size, 0, self.navigation_map.shape)
+		low_lims = np.clip(pos - self.mask_size, 0, self.navigation_map.shape)
+
+		measurement_mask = self._ground_truth_field[low_lims[0]: upp_lims[0] + 1, upp_lims[1]: upp_lims[1] + 1]
 
 		return measurement_mask
 
 	def reset(self):
 		""" Reset the positions, measuremente, and so on. """
+		
+		self.done = False
 
 		if self.initial_position is None:
 			self.position = self.visitable_positions[np.random.randint(0, len(self.visitable_positions))]
@@ -148,19 +158,21 @@ class QuadcopterAgent:
 		self.wp_reached = True
 		self.next_wp = np.copy(self.position)
 
-		return self.measurement
+		return {'data': self.measurement, 'position': self.position}
 
 	def render(self):
 
 		if self.fig is None:
 
-			self.fig, self.axs = plt.subplots(1,2)
+			self.fig, self.axs = plt.subplots(1, 2)
 
-			self.axs[0].imshow(self.navigation_map, cmap = 'gray')
+			self.axs[0].imshow(self.navigation_map, cmap='gray')
 			self.d_pos, = self.axs[0].plot(self.position[1], self.position[0], 'rx')
 			self.d_wp, = self.axs[0].plot(self.next_wp[1], self.next_wp[0], 'bo')
 			self.d_sense = self.axs[1].imshow(self.measurement)
-			self.d_mask = self.axs[0].add_patch(Rectangle((self.position[1]-self.mask_size[1]/2, self.position[0]-self.mask_size[0]/2), self.mask_size[1], self.mask_size[0], fc ='g',ec ='g', lw = 2, ))
+			self.d_mask = self.axs[0].add_patch(
+				Rectangle((self.position[1] - self.mask_size[1] / 2, self.position[0] - self.mask_size[0] / 2),
+				          self.mask_size[1], self.mask_size[0], fc='g', ec='g', lw=2, ))
 
 		else:
 
@@ -169,7 +181,7 @@ class QuadcopterAgent:
 			self.d_wp.set_xdata(self.next_wp[1])
 			self.d_wp.set_ydata(self.next_wp[0])
 			self.d_sense.set_data(self.measurement)
-			self.d_mask.set_xy((self.position[1]-self.mask_size[1]/2, self.position[0]-self.mask_size[0]/2))
+			self.d_mask.set_xy((self.position[1] - self.mask_size[1] / 2, self.position[0] - self.mask_size[0] / 2))
 
 			self.fig.canvas.draw()
 
@@ -189,15 +201,16 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 		for _ in range(env_config['number_of_agents']):
 			self.spawn_agent()
 
-		self.dones = [False]*env_config['number_of_agents']
+		self.dones = [False] * env_config['number_of_agents']
 		# List of ready agents #
-		self.agents_ready = [True]*env_config['number_of_agents']
+		self.agents_ready = [True] * env_config['number_of_agents']
 
 		# Create space-state sets
 		self.observation_space = gym.spaces.Box(low=0.0, high=10000, shape=(5, *env_config['navigation_map'].shape))
 		self.action_space = gym.spaces.Discrete(env_config['number_of_actions'])
 
 		# Other variables
+		self.visitable_positions = np.column_stack(np.where(env_config['navigation_map'] == 1))
 		self.resetted = False
 		self.measurements = [None] * env_config['number_of_actions']
 		self.valids = [None] * env_config['number_of_actions']
@@ -205,35 +218,34 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 		self.states = {}
 
 		""" Regression related values """
-		self.kernel = RBF(length_scale=env_config['kernel_length_scale'])
-		self.GaussianProcess = GaussianProcessRegressor(kernel=self.kernel, optimizer=None)
+		self.kernel = RBF(length_scale=env_config['kernel_length_scale'], length_scale_bounds=(0.1, 10))
+		self.GaussianProcess = GaussianProcessRegressor(kernel=self.kernel, n_restarts_optimizer=20, alpha=0.05)
 		self.measured_values = None
 		self.measured_locations = None
 		self.mu = None
 		self.uncertainty = None
-		self.uncertainty = None
 		self.Sigma = None
 		self.H_ = 0
+		self.fig = None
 
 	def action2angle(self, action):
 
-		return 2*np.pi * action/self.env_config['number_of_actions']
+		return 2 * np.pi * action / self.env_config['number_of_actions']
 
 	def spawn_agent(self):
 
 		agentID = self.agentID
-		self.agents[agentID] = QuadcopterAgent(self.env_config['agent_config'], agentID)
+		self.agents[agentID] = QuadcopterAgent(self.env_config['agent_config'], agentID, self.env_config['initial_positions'][agentID])
 		self._agent_ids.append(agentID)
 		self.agentID += 1
 
 	def step(self, action_dict):
-		""" Process actions for agents that are available """
+		""" Process actions for ALL agents """
 
 		assert self.resetted, "You need to call env.reset() first!"
 
-		for i, agent in self.agents:
-
-			action = action_dict[self.agents_ids_dict[i]]
+		for i, agent in self.agents.items():
+			action = action_dict[i]
 
 			# Transfor discrete action into an angle
 			ang = self.action2angle(action)
@@ -241,26 +253,32 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 			# Schedule every waypoint
 			agent.go_to_next_waypoint_relative(angle=ang, distance=self.env_config['meas_distance'])
 
-
 		# Move environment until all target positions are reached
-		wp_reached_vec = [False] * self.env_config['number_of_actions']
+		wp_reached_vec = [False] * self.env_config['number_of_agents']
+
 		while not all(wp_reached_vec):
 
 			# One step per agent
-			for i in self._agent_ids:
-				meas, ended = self.agent[i].step()
+			for i, agent in self.agents.items():
+
+				meas, ended = agent.step()
 
 				# Check if reached
-				if self.agents[i].wp_reached:
+				if agent.wp_reached and not wp_reached_vec[i]:
 					wp_reached_vec[i] = True
-					self.measurements[i] = np.copy(meas) # Copy measurement if so
-				# Check if end of mission
-				if ended:
-					self.dones[i] = True
+					self.measurements[i] = meas  # Copy measurement if so
+
+					# Check if end of mission
+					if ended:
+						self.dones[i] = True
+
+			self.render()
+
+			plt.pause(0.001)
 
 		# Once every agent has reached its destination, compute the reward and the state #
 
-		self.mu, self.uncertainty, self.Sigma = self.update_model(self.measurements)
+		self.mu, self.uncertainty, self.Sigma = self.update_model()
 
 		self.rewards = self.reward_function()
 
@@ -278,30 +296,33 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 
 		# Append the new data #
 		if self.measured_locations is None:
-			self.measured_locations = np.asarray([self.measurements[ind]['position'] for ind in self._agent_ids])
-			self.measured_values = np.asarray([np.mean(self.measurements[ind]['data']) for ind in self._agent_ids])
+			self.measured_locations = np.asarray([meas['position'] for meas in self.measurements.values()])
+			self.measured_values = np.asarray([np.nanmean(meas['data']) for meas in self.measurements.values()])
 		else:
-			self.measured_locations = np.vstack((self.measured_locations, np.asarray([self.measurements[ind]['position'] for ind in self._agent_ids])))
-			self.measured_values = np.vstack((self.measured_values, np.asarray([np.mean(self.measurements[ind]['data']) for ind in self._agent_ids])))
+			self.measured_locations = np.vstack((self.measured_locations,
+			                                     np.asarray([meas['position'] for meas in self.measurements.values()])))
+			self.measured_values = np.hstack((self.measured_values,
+			                                  np.asarray([np.nanmean(meas['data']) for meas in self.measurements.values()])))
 
-		self.GaussianProcess.fit(self.measured_locations, self.measured_values)
+		unique_locs, unique_indxs = np.unique(self.measured_locations, axis=0, return_index=True)
+		self.GaussianProcess.fit(unique_locs, self.measured_values[unique_indxs])
 
 		mu, Sigma = self.GaussianProcess.predict(self.visitable_positions, return_cov=True)
 		uncertainty = Sigma.diagonal()
 
 		mu_map = np.copy(self.env_config['navigation_map'])
-		mu_map[self.visitable_position] = mu
+		mu_map[self.visitable_positions[:,0], self.visitable_positions[:,1]] = mu
 
 		uncertainty_map = np.copy(self.env_config['navigation_map'])
-		uncertainty_map[self.visitable_position] = uncertainty
+		uncertainty_map[self.visitable_positions[:,0], self.visitable_positions[:,1]] = uncertainty
 
-		return mu, uncertainty, Sigma
+		return mu_map, uncertainty_map, Sigma
 
 	def reward_function(self):
 
 		Tr = self.Sigma.trace()
 
-		rew =  self.H_ - Tr
+		rew = self.H_ - Tr
 
 		self.H_ = Tr
 
@@ -327,16 +348,14 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 		# Third channel: Other agents channel
 		other_agents_map = np.zeros_like(self.env_config['navigation_map'])
 		other_agents_ids = np.copy(self._agent_ids)
-		other_agents_ids.pop(agent_indx)
+		other_agents_ids = np.delete(other_agents_ids,agent_indx)
 
 		for agent_id in other_agents_ids:
-
 			agent_position = self.agents[agent_id].position.astype(int)
 			other_agents_map[agent_position[0], agent_position[1]] = 1.0
 
-
 		return np.concatenate((nav_map[np.newaxis],
-		                       agent_position[np.newaxis],
+		                       position_map[np.newaxis],
 		                       other_agents_map[np.newaxis],
 		                       self.mu[np.newaxis],
 		                       self.uncertainty[np.newaxis]))
@@ -346,143 +365,176 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 		self.resetted = True
 
 		# Reset the vehicles and take the first measurements #
-		self.measurements = [agent.reset() for agent in self.agents]
+		self.measurements = {i: agent.reset() for i, agent in self.agents.items()}
 
 		# Update the model with the initial values #
-		self.mu, self.uncertainty, self.Sigma = self.update_model(new_measurements=self.measurements)
+		self.mu, self.uncertainty, self.Sigma = self.update_model()
 
 		# Update the states
 		self.states = self.update_states()
 
 		return self.states
 
-class AsyncronousMultiAgentIGEnvironment(SincronousMultiAgentIGEnvironment, MultiAgentEnv):
+	def render(self):
 
-	def __init__(self):
+		if self.fig is None:
 
-		super(AsyncronousMultiAgentIGEnvironment, self).__init__()
+			self.fig, self.axs = plt.subplots(1, 2)
+
+			self.axs[0].imshow(self.env_config['navigation_map'], cmap='gray')
+			self.d_pos, = self.axs[0].plot([agent.position[1] for agent in self.agents.values()], [agent.position[0] for agent in self.agents.values()], 'rx')
+			self.d_mu = self.axs[1].imshow(self.mu, cmap='jet')
+
+		else:
+
+			self.d_pos.set_xdata([agent.position[1] for agent in self.agents.values()])
+			self.d_pos.set_ydata([agent.position[0] for agent in self.agents.values()])
+			self.d_mu.set_data(self.mu)
+
+			self.fig.canvas.draw()
+
+
+class AsyncronousMultiAgentIGEnvironment(SynchronousMultiAgentIGEnvironment, MultiAgentEnv):
+
+	def __init__(self, env_config):
+
+		super(AsyncronousMultiAgentIGEnvironment, self).__init__(env_config)
+
+		self.action_space = gym.spaces.Box(low=-1, high=1, shape=(2,))
 
 	def action2angdistance(self, action):
 
-		action = (action + 1)/2 # From [-1,1] to [0,1]
-		action[1] = action[1]*2*np.pi
-		action[2] = action[1] * (self.env_config['max_meas_distance'] - self.env_config['min_meas_distance']) + self.env_config['min_meas_distance']
+		action = (action + 1) / 2  # From [-1,1] to [0,1]
+		action[0] = action[0] * 2 * np.pi
+		action[1] = action[1] * (self.env_config['max_meas_distance'] - self.env_config['min_meas_distance']) + \
+		            self.env_config['min_meas_distance']
 
 		return action
 
-
 	def step(self, action_dict):
-		""" Process actions for agents that are available """
+		""" Process actions ONLY for AVAILABLE agents """
 
 		assert self.resetted, "You need to call env.reset() first!"
 
+		# Reset the internal states and meas
+		self.states = {}
+		self.rewards = {}
+		self.measurements = {}
 
-
-		for i, action in action_dict.keys():
+		# First, query the actions #
+		for i, action in action_dict.items():
 
 			# Transfor discrete action into an angle
-			ang = self.action2angdistance(action)
+			ang, dist = self.action2angdistance(action)
 
 			# Schedule every waypoint
-			self.agent[i].go_to_next_waypoint_relative(angle=ang, distance=self.env_config['meas_distance'])
+			self.agents[i].go_to_next_waypoint_relative(angle=ang, distance=dist)
 
-		wp_reached_vec = [agent.wp_reached for agent in self.agents]
+		# Move environment until at least one agent have finished its action
+		wp_reached_vec = [False] * self.env_config['number_of_agents']
+
 		while not any(wp_reached_vec):
 
 			# One step per agent
-			for i in self._agent_ids:
-				meas, ended = self.agent[i].step()
+			for i, agent in self.agents.items():
+
+				meas, ended = agent.step()
 
 				# Check if reached
-				if self.agents[i].wp_reached:
+				if agent.wp_reached and not wp_reached_vec[i]:
 					wp_reached_vec[i] = True
-					self.measurements[i] = np.copy(meas)  # Copy measurement if so
-				# Check if end of mission
-				if ended:
-					self.dones[i] = True
+					self.measurements[i] = meas  # Copy measurement if so
+					self.states[i] = self.individual_state(i)
+					self.mu, self.uncertainty, self.Sigma = self.update_model()
+					self.rewards[i] = self.reward_function()
 
-		# Once every agent has reached its destination, compute the reward and the state #
+			env.render()
+			plt.pause(0.1)
 
-		self.mu, self.uncertainty, self.Sigma = self.update_model()
+		self.dones = {i: agent.done for i, agent in self.agents.items()}
 
-		self.rewards = self.reward_function()
-
-		self.states = self.update_states()
-
-		self.dones = {i: self.agents[i].done for i in self._agent_ids}
 
 		return self.states, self.rewards, self.dones, {}
 
 
-
 if __name__ == '__main__':
+	from deap import benchmarks
 
 
-	""" Test for one agent """
 
-	agent_config = {'navigation_map': np.ones((100,100)),
-	                'mask_size': (10,10),
-	                'initial_position': np.array([50,50]),
-	                'speed': 1,
+	""" Benchmark parameters """
+	A = [[0.5, 0.5],
+	     [0.25, 0.25],
+	     [0.25, 0.75],
+	     [0.75, 0.25],
+	     [0.75, 0.75]]
+
+	C = [0.005, 0.002, 0.002, 0.002, 0.002]
+
+
+	def shekel_arg0(sol):
+		return benchmarks.shekel(sol, A, C)[0]
+
+
+	def r_interest(val_mu):
+
+		return np.max((0, 1 + val_mu))
+
+
+	""" Compute Ground Truth """
+	navigation_map = np.genfromtxt('wesslinger_map.txt')
+	X = np.linspace(0, 1, navigation_map.shape[1])
+	Y = np.linspace(0, 1, navigation_map.shape[0])
+	X, Y = np.meshgrid(X, Y)
+	Z = np.fromiter(map(shekel_arg0, zip(X.flat, Y.flat)), dtype=float, count=X.shape[0] * X.shape[1]).reshape(X.shape)
+	Z = (Z - Z.min()) / (Z.max() - Z.min() + 1E-8)
+
+
+
+	agent_config = {'navigation_map': navigation_map,
+	                'mask_size': (0, 0),
+	                'initial_position': None,
+	                'speed': 2,
 	                'max_illegal_movements': 10,
 	                'max_distance': 10000000,
-	                'ground_truth_field': np.random.rand(100,100),
+	                'ground_truth_field': Z,
 	                'dt': 1}
 
-	agent = QuadcopterAgent(agent_config, 'pepe')
 
-	agent.reset()
-	agent.render()
+	my_env_config = {'number_of_agents': 3,
+	                 'number_of_actions': 8,
+	                 'kernel_length_scale': 0.2,
+	                 'agent_config': agent_config,
+	                 'navigation_map': navigation_map,
+	                 'meas_distance': 1,
+	                 'initial_positions': np.array([[21,14],[30,16],[36,41]]),
+	                 'max_meas_distance': 5,
+	                 'min_meas_distance': 1
+	                 }
 
-	def target_to_angledist(current, target):
-
-		diff = target - current
-		angle = np.arctan2(diff[1], diff[0])
-		dist = np.linalg.norm(diff)
-
-		return angle,dist
-
-	def onclick(event):
-
-		global agent
-
-		agent.stop_go_to()
-		new_position = np.asarray([event.ydata, event.xdata])
-		angle,dist = target_to_angledist(agent.position, new_position)
-		agent.go_to_next_waypoint_relative(angle, dist)
+	#env = SynchronousMultiAgentIGEnvironment(env_config=my_env_config)
+	env = AsyncronousMultiAgentIGEnvironment(env_config=my_env_config)
 
 
-	cid = agent.fig.canvas.mpl_connect('button_press_event', onclick)
+	s = env.reset()
 
-	done = False
-
-	indx = 0
-
-	x,y = np.meshgrid(np.arange(10,80,10), np.arange(10,80,10))
-
-	wps = np.column_stack((y.flatten(),x.flatten()))
-
-	indx = 0
-
-	print("Waypoint ", wps[indx,:])
-	angle, dist = target_to_angledist(agent.position, wps[indx,:])
-	agent.go_to_next_waypoint_relative(angle, dist)
-
-	while True:
+	dones = [False] * 4
 
 
-		_,done = agent.step()
-		agent.render()
-		plt.pause(0.01)
+	while not all(dones):
+
+		action = {i: env.action_space.sample() for i in env._agent_ids if i in s.keys()}
 
 
-		if indx == len(wps) - 1:
-			agent.reset()
-			indx = 0
+		agents_ready_for_action = [i for i in s.keys()]
+		print("The agents", agents_ready_for_action, "are ready for action!")
 
-		if agent.wp_reached:
+		s, r, dones, _ = env.step(action)
 
-			indx += 1
-			print("Waypoint ", wps[indx, :])
-			angle, dist = target_to_angledist(agent.position, wps[indx,:])
-			agent.go_to_next_waypoint_relative(angle, dist)
+		dones = list(dones.values())
+
+
+
+
+
+
