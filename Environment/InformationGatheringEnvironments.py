@@ -322,7 +322,6 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 
 		return self.states, self.rewards, self.dones, {'collisions': [agent.collision for agent in self.agents.values()]}
 
-
 	def update_model(self):
 
 		""" Fit the gaussian process using the measurements and
@@ -446,9 +445,9 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 
 			self.axs[0].imshow(self.env_config['navigation_map'], cmap='gray')
 			self.d_pos, = self.axs[0].plot([agent.position[1] for agent in self.agents.values()], [agent.position[0] for agent in self.agents.values()], 'rx')
-			self.d_mu = self.axs[1].imshow(self.mu, cmap='jet', vmin=0, vmax=1)
+			self.d_mu = self.axs[1].imshow(self.mu, cmap='jet', vmin=0, vmax=self.ground_truth.ground_truth_field.max(), interpolation='bicubic')
 			self.d_unc = self.axs[2].imshow(self.uncertainty, cmap = 'gray_r')
-			self.d_gt = self.axs[3].imshow(self.ground_truth.ground_truth_field, cmap='jet', vmin=0,vmax=1)
+			self.d_gt = self.axs[3].imshow(self.ground_truth.ground_truth_field, cmap='jet', vmin=0, vmax=self.ground_truth.ground_truth_field.max() , interpolation='bicubic')
 
 		else:
 
@@ -459,6 +458,22 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 			self.d_gt.set_data(self.ground_truth.ground_truth_field)
 
 			self.fig.canvas.draw()
+
+	def check_actions(self, act_dict):
+		""" Check if the action constitutes a collision for every agent """
+
+		is_valid = []
+
+		for agent_id, a in act_dict.items():
+			# Compute the action angle #
+			angle = self.action2angle(a)
+			# Compute the new position #
+			next_attempted_wp = self.agents[agent_id].position + self.env_config['meas_distance'] * np.asarray([np.cos(angle), np.sin(angle)])
+			# Check if the new position is feasible
+			is_valid.append(self.agents[agent_id].check_movement_feasibility(next_attempted_wp))
+
+		return is_valid
+
 
 
 class AsyncronousMultiAgentIGEnvironment(SynchronousMultiAgentIGEnvironment, MultiAgentEnv):
@@ -535,11 +550,11 @@ if __name__ == '__main__':
 	                'initial_position': None,
 	                'speed': 2,
 	                'max_illegal_movements': 10,
-	                'max_distance': 1000,
+	                'max_distance': 200,
 	                'dt': 1}
 
 
-	my_env_config = {'number_of_agents': 1,
+	my_env_config = {'number_of_agents': 3,
 	                 'number_of_actions': 8,
 	                 'kernel_length_scale': 2,
 	                 'agent_config': agent_config,
