@@ -6,7 +6,7 @@ from deap import benchmarks
 from mpl_toolkits.mplot3d import Axes3D
 
 """ Gaussian Process Regressor """
-gp = GaussianProcessRegressor(kernel=RBF(length_scale=0.08, length_scale_bounds='fixed'), alpha=0, n_restarts_optimizer=5)
+gp = GaussianProcessRegressor(kernel=RBF(length_scale=0.08, length_scale_bounds='fixed'), alpha=0.01, optimizer=None)
 
 """ Benchmark parameters """
 A = [[0.5,  0.5],
@@ -49,11 +49,9 @@ print('Entropy: ', np.linalg.det(sigma_weighted))
 
 """ Plot the data"""
 d = ax[0].imshow(mu.reshape(Z.shape), cmap='jet', vmin=0, vmax=1)
-ds = ax[1].imshow(sigma.diagonal().reshape(Z.shape), cmap='viridis')
+ds = ax[1].imshow(np.sqrt(sigma.diagonal()).reshape(Z.shape), cmap='viridis')
 d1, = ax[0].plot(x_meas[:,1]*50, x_meas[:,0]*50, 'r-x')
 de = ax[2].imshow(Z, cmap='viridis')
-
-
 
 def onclick(event):
 
@@ -74,20 +72,17 @@ def onclick(event):
     gp.fit(x_meas, y_meas)
     mu_, sigma_ = gp.predict(x_locs, return_cov=True)
 
-    """ Compute the entropy """
-    r = np.array(list(map(r_interest, mu_.flatten())))
-    sigma_weighted = sigma_ + np.diag(r)
 
     mu_ = mu_.reshape(Z.shape)
-    H_new = sigma_weighted.trace() / np.sqrt(sigma_weighted.shape[0])
-    print('Entropy: ', H1/H_new)
+    H_new = np.sqrt(sigma_).trace()
+    print('Entropy: ', H_new)
 
 
     """ Plot the results """
     d.set_data(mu_)
     d1.set_xdata(x_meas[:,0]*50)
     d1.set_ydata(x_meas[:,1]*50)
-    ds.set_data(sigma_.diagonal().reshape(Z.shape))
+    ds.set_data(np.sqrt(sigma_.diagonal()).reshape(Z.shape))
     de.set_data(Z)
     fig.canvas.draw()
 

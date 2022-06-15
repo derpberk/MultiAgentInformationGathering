@@ -1,10 +1,12 @@
 import gym
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 import numpy as np
-from sklearn.gaussian_process.kernels import RBF, ConstantKernel
+from sklearn.gaussian_process.kernels import RBF, ConstantKernel, WhiteKernel
 from sklearn.gaussian_process import GaussianProcessRegressor
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
+from OilSpillEnvironment import OilSpillEnv
+from ShekelGroundTruth import Shekel
 
 
 class QuadcopterAgent:
@@ -53,7 +55,7 @@ class QuadcopterAgent:
 		self.max_illegal_movements = agent_config['max_illegal_movements']
 		self.max_distance = agent_config['max_distance']
 		self.distance = 0
-		self._ground_truth_field = agent_config['ground_truth_field']
+		self._ground_truth_field = None
 		self.dt = agent_config['dt']
 		self.collision = False
 		self.fig = None
@@ -141,6 +143,8 @@ class QuadcopterAgent:
 			return False
 
 	def take_measurement(self, pos=None):
+
+		assert self._ground_truth_field is not None, 'The ground truth is not set!'
 
 		if pos is None:
 			pos = self.position
@@ -232,8 +236,15 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 		self.infos = {}
 
 		""" Regression related values """
-		self.kernel = ConstantKernel(constant_value=1.0, constant_value_bounds='fixed') * RBF(length_scale=env_config['kernel_length_scale'], length_scale_bounds=(0.01, 2))
-		self.GaussianProcess = GaussianProcessRegressor(kernel=self.kernel, n_restarts_optimizer=20, alpha=0.05)
+		if env_config['dynamic'] == 'OilSpillEnv':
+			self.ground_truth = OilSpillEnv(self.env_config['navigation_map'], dt=1, flow=10, gamma=1, kc=1, kw=1)
+		elif env_config['dynamic'] == 'Shekel':
+			self.ground_truth = Shekel(1 - self.env_config['navigation_map'], 1, max_number_of_peaks=4, is_bounded=True, seed=0)
+		else:
+			raise NotImplementedError("This benchmark is not implemented")
+
+		self.kernel = RBF(length_scale=env_config['kernel_length_scale'], length_scale_bounds='fixed')
+		self.GaussianProcess = GaussianProcessRegressor(kernel=self.kernel, alpha=0.01, optimizer=None)
 		self.measured_values = None
 		self.measured_locations = None
 		self.mu = None
@@ -294,10 +305,6 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 					# Check end-of-mission
 					self.dones[i] = ended
 
-			self.render()
-
-			plt.pause(0.001)
-
 		# Once every agent has reached its destination, compute the reward and the state #
 
 		self.mu, self.uncertainty, self.Sigma = self.update_model()
@@ -308,8 +315,13 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 
 		self.dones = {i: self.agents[i].done for i in self._agent_ids}
 
+		# Update the ground truth state and pass the field to agents #
+		self.ground_truth.step()
+		self.update_vehicles_ground_truths()
+
 
 		return self.states, self.rewards, self.dones, {'collisions': [agent.collision for agent in self.agents.values()]}
+
 
 	def update_model(self):
 
@@ -326,29 +338,44 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 			self.measured_values = np.hstack((self.measured_values,
 			                                  np.asarray([np.nanmean(meas['data']) for meas in self.measurements.values()])))
 
+
+		# Obtain the max value obtained by the fleet to compute the regret #
+		self.max_sensed_value = self.measured_values.max()
+
+		"""
 		unique_locs, unique_indxs = np.unique(self.measured_locations, axis=0, return_index=True)
-		self.GaussianProcess.fit(unique_locs, self.measured_values[unique_indxs])
+		unique_values = self.measured_values[unique_indxs]
+		"""
+
+		self.GaussianProcess.fit(self.measured_locations, self.measured_values)
 
 		mu, Sigma = self.GaussianProcess.predict(self.visitable_positions, return_cov=True)
-		uncertainty = Sigma.diagonal()
+		uncertainty = np.sqrt(Sigma.diagonal())
 
 		mu_map = np.copy(self.env_config['navigation_map'])
-		mu_map[self.visitable_positions[:,0], self.visitable_positions[:,1]] = mu
+		mu_map[self.visitable_positions[:, 0],
+		       self.visitable_positions[:, 1]] = mu
 
 		uncertainty_map = np.copy(self.env_config['navigation_map'])
-		uncertainty_map[self.visitable_positions[:,0], self.visitable_positions[:,1]] = uncertainty
+		uncertainty_map[self.visitable_positions[:, 0],
+		                self.visitable_positions[:, 1]] = uncertainty
 
 		return mu_map, uncertainty_map, Sigma
 
 	def reward_function(self):
-
+		""" The reward function has the following terms:
+			H -> the decrement of the uncertainty from the previous instant to the next one. Defines the exploratory reward.
+			"""
 		Tr = self.Sigma.trace()
 
-		rew = self.H_ - Tr
+		uncertainty_component = np.abs(self.H_ - Tr)
+		regret_component = np.clip(self.measured_values[-self.env_config['number_of_agents']:]-self.max_sensed_value, 0.5, 1.0)
+
+		reward = uncertainty_component*regret_component
 
 		self.H_ = Tr
 
-		return {i: rew for i in self._agent_ids}
+		return {i: reward[i] for i in self._agent_ids}
 
 	def update_states(self):
 		""" Update the states """
@@ -382,11 +409,20 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 		                       self.mu[np.newaxis],
 		                       self.uncertainty[np.newaxis]))
 
+	def update_vehicles_ground_truths(self):
+
+		for vehicle in self.agents.values():
+			vehicle.ground_truth_field = self.ground_truth.ground_truth_field
+
 	def reset(self):
 
 		self.resetted = True
 
 		self.dones = {i: False for i in self.agents.keys()}
+
+		# Reset the ground truth and set the value for
+		self.ground_truth.reset()
+		self.update_vehicles_ground_truths()
 
 		# Reset the vehicles and take the first measurements #
 		self.measurements = {i: agent.reset() for i, agent in self.agents.items()}
@@ -394,22 +430,25 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 		# Update the model with the initial values #
 		self.mu, self.uncertainty, self.Sigma = self.update_model()
 
+		self.H_ = self.Sigma.trace()
+
 		# Update the states
 		self.states = self.update_states()
 
 
 		return self.states
 
-	def render(self):
+	def render(self, mode='human'):
 
 		if self.fig is None:
 
-			self.fig, self.axs = plt.subplots(1, 3)
+			self.fig, self.axs = plt.subplots(1, 4)
 
 			self.axs[0].imshow(self.env_config['navigation_map'], cmap='gray')
 			self.d_pos, = self.axs[0].plot([agent.position[1] for agent in self.agents.values()], [agent.position[0] for agent in self.agents.values()], 'rx')
 			self.d_mu = self.axs[1].imshow(self.mu, cmap='jet', vmin=0, vmax=1)
 			self.d_unc = self.axs[2].imshow(self.uncertainty, cmap = 'gray_r')
+			self.d_gt = self.axs[3].imshow(self.ground_truth.ground_truth_field, cmap='jet', vmin=0,vmax=1)
 
 		else:
 
@@ -417,6 +456,7 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 			self.d_pos.set_ydata([agent.position[0] for agent in self.agents.values()])
 			self.d_mu.set_data(self.mu)
 			self.d_unc.set_data(self.uncertainty)
+			self.d_gt.set_data(self.ground_truth.ground_truth_field)
 
 			self.fig.canvas.draw()
 
@@ -475,9 +515,6 @@ class AsyncronousMultiAgentIGEnvironment(SynchronousMultiAgentIGEnvironment, Mul
 					self.mu, self.uncertainty, self.Sigma = self.update_model()
 					self.rewards[i] = self.reward_function()
 
-			env.render()
-			plt.pause(0.001)
-
 		self.dones = {i: agent.done for i, agent in self.agents.items()}
 
 
@@ -487,69 +524,47 @@ class AsyncronousMultiAgentIGEnvironment(SynchronousMultiAgentIGEnvironment, Mul
 if __name__ == '__main__':
 	from deap import benchmarks
 
-
-
-	""" Benchmark parameters """
-	A = [[0.5, 0.5],
-	     [0.25, 0.25],
-	     [0.25, 0.75],
-	     [0.75, 0.25],
-	     [0.75, 0.75]]
-
-	C = [0.002, 0.002, 0.002, 0.002, 0.002]
-
-
-	def shekel_arg0(sol):
-		return benchmarks.shekel(sol, A, C)[0]
-
-
-	def r_interest(val_mu):
-
-		return np.max((0, 1 + val_mu))
+	np.random.seed(11)
 
 
 	""" Compute Ground Truth """
 	navigation_map = np.genfromtxt('wesslinger_map.txt')
-	X = np.linspace(0, 1, navigation_map.shape[1])
-	Y = np.linspace(0, 1, navigation_map.shape[0])
-	X, Y = np.meshgrid(X, Y)
-	Z = np.fromiter(map(shekel_arg0, zip(X.flat, Y.flat)), dtype=float, count=X.shape[0] * X.shape[1]).reshape(X.shape)
-	Z = (Z - Z.min()) / (Z.max() - Z.min() + 1E-8)
-
-
 
 	agent_config = {'navigation_map': navigation_map,
 	                'mask_size': (1, 1),
 	                'initial_position': None,
 	                'speed': 2,
 	                'max_illegal_movements': 10,
-	                'max_distance': 10000000,
-	                'ground_truth_field': Z,
+	                'max_distance': 1000,
 	                'dt': 1}
 
 
-	my_env_config = {'number_of_agents': 3,
+	my_env_config = {'number_of_agents': 1,
 	                 'number_of_actions': 8,
-	                 'kernel_length_scale': 3,
+	                 'kernel_length_scale': 2,
 	                 'agent_config': agent_config,
 	                 'navigation_map': navigation_map,
 	                 'meas_distance': 2,
 	                 'initial_positions': np.array([[21,14],[30,16],[36,41]]),
 	                 'max_meas_distance': 5,
-	                 'min_meas_distance': 1
+	                 'min_meas_distance': 1,
+	                 'dynamic': 'Shekel',
 	                 }
 
-	#env = SynchronousMultiAgentIGEnvironment(env_config=my_env_config)
-	env = AsyncronousMultiAgentIGEnvironment(env_config=my_env_config)
+	env = SynchronousMultiAgentIGEnvironment(env_config=my_env_config)
+	#env = AsyncronousMultiAgentIGEnvironment(env_config=my_env_config)
 
 
 	s = env.reset()
+
+	_,ax = plt.subplots(1,1)
 
 	dones = [False] * 4
 
 	idx = 0
 	action = {i: env.action_space.sample() for i in env._agent_ids if i in s.keys()}
-
+	R = [0]
+	t = [0]
 	while not all(dones):
 
 
@@ -560,12 +575,19 @@ if __name__ == '__main__':
 
 		s, r, dones, infos = env.step(action)
 
+		R.append(r[0])
+		t.append(t[-1]+1)
+
 		print(f"Agent colliding: {infos['collisions']}")
 
 		action = {i: env.action_space.sample() if infos['collisions'][i] else action[i] for i in env._agent_ids}
 
 		dones = list(dones.values())
 
+	plt.plot(t,R)
+	plt.show()
+	env.render()
+	plt.show()
 
 
 

@@ -3,9 +3,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 agent_config = {'navigation_map': np.ones((100,100)),
-	                'mask_size': (10,10),
+	                'mask_size': (3,3),
 	                'initial_position': np.array([50,50]),
-	                'speed': 1,
+	                'speed': 5,
 	                'max_illegal_movements': 10,
 	                'max_distance': 10000000,
 	                'ground_truth_field': np.random.rand(100, 100),
@@ -53,7 +53,7 @@ agent.go_to_next_waypoint_relative(angle, dist)
 while True:
 
 
-	_,done = agent.step()
+	_,done,_ = agent.step()
 	agent.render()
 	plt.pause(0.01)
 
