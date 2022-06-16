@@ -15,6 +15,8 @@ plt.ion()
 """ Compute Ground Truth """
 navigation_map = np.genfromtxt('../../Environment/wesslinger_map.txt')
 n_agents = 3
+NUM_OF_GENERATIONS = 50
+NUM_OF_INDIVIDUALS = 200
 
 agent_config = {'navigation_map': navigation_map,
                 'mask_size': (1, 1),
@@ -52,7 +54,7 @@ toolbox = base.Toolbox()
 # Cromosome is an action in [0,number_of_actions] #
 toolbox.register("attr_bool", random.randint, 0, my_env_config['number_of_actions'])
 # Each individual is a set of n_agents x 101 steps (this will depend on the number of possible actions for agent)  #
-toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.attr_bool, n=my_env_config['number_of_agents']*101)
+toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.attr_bool, n=my_env_config['number_of_agents']*201)
 # Create the population creator #
 toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 
@@ -64,7 +66,7 @@ def select_valid_action(environment, actions, current_action_index):
     it will not be increased, only those that are marked as invalid. Returns the updated index and the
     dictionary with the valid actions """
 
-    dict_actions_ = {i: actions[a, i] for i, a in zip(environment.agents.keys(), current_action_index)}
+    dict_actions_ = {i: actions[a, i] for i, a in zip(environment.agents.keys(), current_action_index.astype(int))}
     safe_action_mask_ = np.asarray(environment.check_actions(dict_actions_))
 
     while not all(safe_action_mask_):
@@ -130,7 +132,7 @@ def optimize(local_env, save=False):
 
     random.seed(64)
 
-    pop = toolbox.population(n=20)
+    pop = toolbox.population(n=NUM_OF_INDIVIDUALS)
 
     # Fix the evaluation function with the current environment
     toolbox.register("evaluate", evalEnv, local_env=local_env)
@@ -146,7 +148,7 @@ def optimize(local_env, save=False):
     stats.register("max", np.max)
 
     # Algorithm - Simple Evolutionary Algorithm #
-    eaSimpleWithReevaluation(pop, toolbox, cxpb=0.5, mutpb=0.5, ngen=50, stats=stats, halloffame=hof)
+    eaSimpleWithReevaluation(pop, toolbox, cxpb=0.7, mutpb=0.3, ngen=NUM_OF_GENERATIONS, stats=stats, halloffame=hof)
 
     if save:
 
@@ -154,7 +156,6 @@ def optimize(local_env, save=False):
 
             solution_file.write("Optimization result for the GA\n")
             solution_file.write("---------------------------------\n")
-            solution_file.write(f"Starting positions: {local_env.initial_positions}\n")
             solution_file.write("---------------------------------\n")
             solution_file.write("--------- Best Individuals -----------\n")
 
@@ -175,27 +176,29 @@ if __name__ == "__main__":
     # Create the environment to optimize #
     my_env = SynchronousMultiAgentIGEnvironment(env_config=my_env_config)
 
-    # Run for T times #
+    done_flag, t = False, 0
+
+    R = 0
+
+    # Initial reset #
+    my_env.reset()
+
+    """ OPTIMIZE THE SCENARIO """
+    best = np.asarray(optimize(my_env, save=True))
+
+    # Evaluate for 10 scenarios #
     for run in range(10):
 
-        print("Run ", run)
-
-        done_flag, t = False, 0
-
+        t = 0
         R = 0
-
         # Initial reset #
         my_env.reset()
 
-        """ OPTIMIZE THE SCENARIO """
-        best = np.asarray(optimize(my_env))
         # Evaluate the metrics of the solutions #
         action_array = np.asarray(np.split(best, n_agents)).T
-        actions_indexs = np.zeros(n_agents)  # The indexes of the actions of the individual for every agent #
-
+        actions_indexs = np.zeros(n_agents).astype(int)
         dict_actions, actions_indexs = select_valid_action(my_env, action_array, actions_indexs)
 
-        # If the initial action is valid, begin to evaluate #
         while not done_flag:
 
             _, reward_dict, dones_dict, info = my_env.step(dict_actions)
@@ -207,15 +210,14 @@ if __name__ == "__main__":
             # Check if done #
             done_flag = any(list(dones_dict.values()))
 
-
-            metrics = [R,
-                       np.mean(my_env.uncertainty),
-                       my_env.max_sensed_value,
-                       np.sum(info['collisions'])]
+            metrics = [R, np.mean(my_env.uncertainty), my_env.max_sensed_value, np.sum(info['collisions'])]
 
             evaluator.register_step(run_num=run, step=t, metrics=[*metrics])
 
             t += 1
+
+            my_env.render()
+            plt.pause(0.1)
 
 evaluator.register_experiment()
 
