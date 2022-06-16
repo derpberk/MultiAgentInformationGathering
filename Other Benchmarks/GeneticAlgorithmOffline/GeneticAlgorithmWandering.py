@@ -13,7 +13,7 @@ from StochasticEASimple import eaSimpleWithReevaluation, cxTwoPointCopy
 plt.ion()
 
 """ Compute Ground Truth """
-navigation_map = np.genfromtxt('../Environment/wesslinger_map.txt')
+navigation_map = np.genfromtxt('../../Environment/wesslinger_map.txt')
 n_agents = 3
 
 agent_config = {'navigation_map': navigation_map,
