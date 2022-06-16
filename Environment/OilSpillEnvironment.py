@@ -1,6 +1,4 @@
 import time
-from numba.experimental import jitclass
-import gym
 import numpy as np
 import matplotlib.pyplot as plt
 
