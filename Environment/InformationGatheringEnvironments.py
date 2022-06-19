@@ -365,10 +365,12 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 		""" The reward function has the following terms:
 			H -> the decrement of the uncertainty from the previous instant to the next one. Defines the exploratory reward.
 			"""
-		Tr = self.Sigma.trace()
+		Tr = np.trace(self.Sigma)/8
 
-		uncertainty_component = np.abs(self.H_ - Tr)
-		regret_component = np.clip(self.measured_values[-self.env_config['number_of_agents']:]-self.max_sensed_value, 0.5, 1.0)
+		uncertainty_component = (self.H_ - Tr)/self.env_config['number_of_agents']
+		regret_component = 1 - np.clip(self.measured_values[-self.env_config['number_of_agents']:]-self.max_sensed_value,
+		                               0.0,
+		                               1.0)
 
 		reward = uncertainty_component*regret_component
 
@@ -429,7 +431,7 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 		# Update the model with the initial values #
 		self.mu, self.uncertainty, self.Sigma = self.update_model()
 
-		self.H_ = self.Sigma.trace()
+		self.H_ = np.trace(self.Sigma)/8
 
 		# Update the states
 		self.states = self.update_states()
