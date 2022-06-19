@@ -83,6 +83,7 @@ class QuadcopterAgent:
 			self.wp_reached = True
 			self.next_wp = np.copy(self.position)
 			self.collision = True # Set the collision state
+			self.illegal_movements += 1
 
 			return True
 
@@ -138,7 +139,8 @@ class QuadcopterAgent:
 		in_bounds = all(pos <= self.navigation_map.shape) and all(pos > 0)
 
 		if in_bounds:
-			return self.navigation_map[int(pos[0]), int(pos[1])] == 1
+
+			return self.navigation_map[(pos[0]).astype(int), (pos[1]).astype(int)] == 1
 		else:
 			return False
 
@@ -269,8 +271,6 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 
 		assert self.resetted, "You need to call env.reset() first!"
 
-		collisions = [False] * self.env_config['number_of_agents']
-
 		# Set mission for every
 		for i, agent in self.agents.items():
 
@@ -314,6 +314,8 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 		self.states = self.update_states()
 
 		self.dones = {i: self.agents[i].done for i in self._agent_ids}
+
+
 
 		# Update the ground truth state and pass the field to agents #
 		self.ground_truth.step()
@@ -413,6 +415,14 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 	def get_agents_positions(self):
 
 		return np.asarray([agent.position for agent in self.agents.values()])
+
+	def get_valid_action_mask(self, agent_id = 0):
+
+		angles = np.asarray(list(map(self.action2angle, np.arange(0,self.env_config['number_of_actions']))))
+		next_positions = self.agents[agent_id].position + 0.9*self.env_config['meas_distance'] * np.asarray([np.cos(angles), np.sin(angles)]).T
+
+		return [self.agents[agent_id].check_movement_feasibility(pos) for pos in next_positions]
+
 
 	def update_vehicles_ground_truths(self):
 
