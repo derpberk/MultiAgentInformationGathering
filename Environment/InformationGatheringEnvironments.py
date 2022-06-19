@@ -410,6 +410,10 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 		                       self.mu[np.newaxis],
 		                       self.uncertainty[np.newaxis]))
 
+	def get_agents_positions(self):
+
+		return np.asarray([agent.position for agent in self.agents.values()])
+
 	def update_vehicles_ground_truths(self):
 
 		for vehicle in self.agents.values():
@@ -424,6 +428,13 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 		# Reset the ground truth and set the value for
 		self.ground_truth.reset()
 		self.update_vehicles_ground_truths()
+
+		# Reset the model #
+		self.measured_locations = None
+		self.measured_values = None
+		self.mu = None
+		self.uncertainty = None
+		self.Sigma = None
 
 		# Reset the vehicles and take the first measurements #
 		self.measurements = {i: agent.reset() for i, agent in self.agents.items()}
