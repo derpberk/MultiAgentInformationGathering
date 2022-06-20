@@ -2,6 +2,7 @@ import gym
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 import numpy as np
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel, WhiteKernel
+from sklearn.metrics import mean_squared_error
 from sklearn.gaussian_process import GaussianProcessRegressor
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
@@ -211,6 +212,10 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 
 		super().__init__()
 
+		self.mse = None
+		self.max_sensed_value = None
+		self.regret = None
+		self._eval = False
 		self.env_config = env_config
 
 		# Create the agents #
@@ -265,6 +270,14 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 		self.agents[agentID] = QuadcopterAgent(self.env_config['agent_config'], agentID, self.env_config['initial_positions'][agentID])
 		self._agent_ids.append(agentID)
 		self.agentID += 1
+
+	@property
+	def eval(self):
+		return self._eval
+
+	@eval.setter
+	def eval(self, flag):
+		self._eval = flag
 
 	def step(self, action_dict):
 		""" Process actions for ALL agents """
@@ -342,6 +355,7 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 
 		# Obtain the max value obtained by the fleet to compute the regret #
 		self.max_sensed_value = self.measured_values.max()
+		self.regret = 1 - self.measured_values[-self.env_config['number_of_agents']:] - self.max_sensed_value
 
 		"""
 		unique_locs, unique_indxs = np.unique(self.measured_locations, axis=0, return_index=True)
@@ -351,6 +365,12 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 		self.GaussianProcess.fit(self.measured_locations, self.measured_values)
 
 		mu, Sigma = self.GaussianProcess.predict(self.visitable_positions, return_cov=True)
+
+		if self._eval:
+			self.mse = mean_squared_error(y_true = self.ground_truth.ground_truth_field[self.visitable_positions[:,0], self.visitable_positions[:,1]],
+			                              y_pred = mu,
+			                              squared=True)
+
 		uncertainty = np.sqrt(Sigma.diagonal())
 
 		mu_map = np.copy(self.env_config['navigation_map'])
@@ -370,9 +390,7 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 		Tr = np.trace(self.Sigma)/8
 
 		uncertainty_component = (self.H_ - Tr)/self.env_config['number_of_agents']
-		regret_component = 1 - np.clip(self.measured_values[-self.env_config['number_of_agents']:]-self.max_sensed_value,
-		                               0.0,
-		                               1.0)
+		regret_component = 1 - np.clip(self.regret, 0.0, 1.0)
 
 		reward = uncertainty_component*regret_component
 
@@ -419,7 +437,7 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 	def get_valid_action_mask(self, agent_id = 0):
 
 		angles = np.asarray(list(map(self.action2angle, np.arange(0,self.env_config['number_of_actions']))))
-		next_positions = self.agents[agent_id].position + 0.9*self.env_config['meas_distance'] * np.asarray([np.cos(angles), np.sin(angles)]).T
+		next_positions = self.agents[agent_id].position + 1.41*self.env_config['meas_distance'] * np.asarray([np.cos(angles), np.sin(angles)]).T
 
 		return [self.agents[agent_id].check_movement_feasibility(pos) for pos in next_positions]
 

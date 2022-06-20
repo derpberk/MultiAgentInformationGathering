@@ -14,10 +14,10 @@ n_agents = 3
 agent_config = {'navigation_map': navigation_map,
                 'mask_size': (1, 1),
                 'initial_position': None,
-                'speed': 0.5,
+                'speed': 1,
                 'max_illegal_movements': 100,
                 'max_distance': 200,
-                'dt': 0.5}
+                'dt': 1}
 
 
 my_env_config = {'number_of_agents':n_agents,
@@ -39,7 +39,7 @@ np.random.seed(0)
 env = SynchronousMultiAgentIGEnvironment(env_config=my_env_config)
 
 # Create the evaluator and pass the metrics #
-evaluator = MetricsDataCreator(metrics_names=['Mean Reward', 'Uncertainty', 'Max regret', 'Collisions'], algorithm_name='Greedy ExpImp', experiment_name='ExpectedImprovementResults')
+evaluator = MetricsDataCreator(metrics_names=['Mean Reward', 'Uncertainty', 'Max regret', 'RMSE', 'Collisions'], algorithm_name='Greedy ExpImp', experiment_name='ExpectedImprovementResults')
 
 def reverse_action(a):
 
@@ -51,7 +51,7 @@ def predict_best_action(ei_map, last_actions):
     """ Compute the actions to move towards the maximal ei_map position """
 
     angles = np.asarray(list(map(env.action2angle, np.arange(0,my_env_config['number_of_actions']))))
-    predicted_displacement = my_env_config['meas_distance'] * 2 *  np.asarray([np.cos(angles), np.sin(angles)]).T
+    predicted_displacement = my_env_config['meas_distance'] * 1 *  np.asarray([np.cos(angles), np.sin(angles)]).T
     action_set = []
 
     if last_actions is None:
@@ -80,8 +80,10 @@ def predict_best_action(ei_map, last_actions):
 
 d = None
 
+env.eval = True
+
 # Evaluate for 10 scenarios #
-for run in range(10):
+for run in range(100):
 
     # Reset flags
     t, R, done_flag = 0, 0, False
@@ -113,11 +115,13 @@ for run in range(10):
         # Check if done #
         done_flag = any(list(dones_dict.values()))
 
-        metrics = [R, np.mean(env.uncertainty), env.max_sensed_value, np.sum(info['collisions'])]
+        metrics = [R, np.mean(env.uncertainty), env.regret.mean(), env.mse, np.sum(info['collisions'])]
 
         evaluator.register_step(run_num=run, step=t, metrics=[*metrics])
 
         t += 1
+
+        env.render()
 
         """
         if d is None:
@@ -140,7 +144,9 @@ for run in range(10):
         
         fig.canvas.draw()
         """
-        #env.render()
-        #plt.pause(0.01)
+
+        plt.pause(0.01)
+
+
 
 evaluator.register_experiment()
