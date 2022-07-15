@@ -11,6 +11,7 @@ from ShekelGroundTruth import Shekel
 
 
 class QuadcopterAgent:
+
 	_action_types = ['CartesianDiscrete', 'AngleAndDistance']
 
 	agent_config_template = {'navigation_map': None,

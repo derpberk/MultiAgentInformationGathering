@@ -1,7 +1,7 @@
 import time
 import numpy as np
 import matplotlib.pyplot as plt
-
+from scipy.ndimage import gaussian_filter
 
 class OilSpillEnv():
 
@@ -117,6 +117,7 @@ class OilSpillEnv():
 		self.ground_truth_field, _, _ = np.histogram2d(self.contamination_position[:, 0], self.contamination_position[:, 1],
 		                                               [self.x_bins, self.y_bins])
 
+		self.ground_truth_field = gaussian_filter(self.ground_truth_field / 10.0, 1.0)
 
 		return self.ground_truth_field
 
@@ -162,10 +163,10 @@ class OilSpillEnv():
 
 if __name__ == '__main__':
 
-	my_map = np.genfromtxt('example_map.csv', delimiter=',')
+	my_map = np.genfromtxt('/Users/samuel/MultiAgentInformationGathering/Environment/wesslinger_map.txt')
 
 
-	env = OilSpillEnv(my_map, dt=1, flow = 10, gamma=1, kc = 1, kw=1)
+	env = OilSpillEnv(my_map, dt=1, flow=10, gamma=1, kc=1, kw=1)
 	env.reset()
 
 	for _ in range(100):
