@@ -1,5 +1,3 @@
-from Environment.InformationGatheringEnvironments import SynchronousMultiAgentIGEnvironment
-from Evaluation.Utils.metrics_wrapper import MetricsDataCreator
 import numpy as np
 from deap import base
 from deap import creator
@@ -9,126 +7,123 @@ import datetime
 import multiprocessing
 import matplotlib.pyplot as plt
 from StochasticEASimple import eaSimpleWithReevaluation, cxTwoPointCopy
+from Environment.IGEnvironments import InformationGatheringEnv
+from Evaluation.Utils.metrics_wrapper import MetricsDataCreator
 
-plt.ion()
 
 """ Compute Ground Truth """
-navigation_map = np.genfromtxt('../../Environment/wesslinger_map.txt')
-n_agents = 3
-NUM_OF_GENERATIONS = 50
-NUM_OF_INDIVIDUALS = 200
+navigation_map = np.genfromtxt('/Users/samuel/MultiAgentInformationGathering/Environment/wesslinger_map.txt')
+N = 4
+env_config = {
+    'fleet_configuration': {
+        'vehicle_configuration': {
+            'dt': 0.5,
+            'navigation_map': navigation_map,
+            'target_threshold': 0.5,
+            'ground_truth': np.random.rand(50,50),
+            'measurement_size': np.array([2, 2])
+        },
+        'number_of_vehicles': N,
+        'max_distance': 100,
+        'initial_positions': np.array([[15, 19],
+                                        [13, 19],
+                                        [18, 19],
+                                        [15, 22]])
+    },
+    'movement_type': 'DIRECTIONAL',
+    'navigation_map': navigation_map,
+    'dynamic': 'Shekel',
+    'min_measurement_distance': 5,
+    'max_measurement_distance': 10,
+    'measurement_distance': 3,
+    'number_of_actions': 8,
+    'kernel_length_scale': 2
+}
 
-agent_config = {'navigation_map': navigation_map,
-                'mask_size': (1, 1),
-                'initial_position': None,
-                'speed': 2,
-                'max_illegal_movements': 10,
-                'max_distance': 200,
-                'dt': 1}
 
-
-my_env_config = {'number_of_agents':n_agents,
-                 'number_of_actions': 8,
-                 'kernel_length_scale': 2,
-                 'agent_config': agent_config,
-                 'navigation_map': navigation_map,
-                 'meas_distance': 2,
-                 'initial_positions': np.array([[21,14],[30,16],[36,41]]),
-                 'max_meas_distance': 5,
-                 'min_meas_distance': 1,
-                 'dynamic': 'Shekel',
-                 }
+N_EVAL = 1
+NUM_OF_INDIVIDUALS = 20
+NUM_OF_GENERATIONS = 10
 
 # Create the environment #
-env = SynchronousMultiAgentIGEnvironment(env_config=my_env_config)
+env = InformationGatheringEnv(env_config=env_config)
+
+metrics = MetricsDataCreator(metrics_names=['Accumulated Reward', 'MSE'],
+                             algorithm_name='Genetic Algorithm',
+                             experiment_name='GeneticAlgorithm',
+                             directory='./')
+
+paths = MetricsDataCreator(metrics_names=['vehicle', 'x', 'y'],
+                           algorithm_name='Genetic Algorithm',
+                           experiment_name='GeneticAlgorithm_paths',
+                           directory='./')
 
 
-# Create the evaluator and pass the metrics #
-evaluator = MetricsDataCreator(metrics_names=['Mean Reward', 'Uncertainty', 'Max regret', 'Collisions'], algorithm_name='GA', experiment_name='WanderingGAResults')
+def createValidIndividual(creator):
+    """ Create a valid individual. """
+
+    env.reset()
+    done_flag = False
+    individual = []
+
+    while not done_flag:
+        actions = []
+
+        for veh_id in range(N):
+            mask = env.get_action_mask(ind=veh_id).astype(int)
+            action = np.random.choice(np.arange(0, 8), p=mask / np.sum(mask))
+            actions.append(action)
+
+        actions_dict = {i:a for i, a in enumerate(actions)}
+        individual.extend(actions)
+        _, _, done, _ = env.step(actions_dict)
+
+        done_flag = np.all(list(done.values()))
+
+    return creator(individual)
 
 # --- Create the Genetic Algorihtm Strategies --- #
-creator.create("FitnessMax", base.Fitness, weights=(1.0,)) # This means we want to maximize
-creator.create("Individual", np.ndarray, fitness=creator.FitnessMax) # Individual creator
+creator.create("FitnessMax", base.Fitness, weights=(1.0,))  # This means we want to maximize
+creator.create("Individual", np.ndarray, fitness=creator.FitnessMax)  # Individual creator
 # Create a toolbox for genetic operations #
 toolbox = base.Toolbox()
-# Cromosome is an action in [0,number_of_actions] #
-toolbox.register("attr_bool", random.randint, 0, my_env_config['number_of_actions'])
 # Each individual is a set of n_agents x 101 steps (this will depend on the number of possible actions for agent)  #
-toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.attr_bool, n=my_env_config['number_of_agents']*201)
+toolbox.register("individual", createValidIndividual, creator.Individual)
 # Create the population creator #
 toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 
 
-def select_valid_action(environment, actions, current_action_index):
-
-    """ Receive an environment, all individual set of actions, and the current index of the actions.
-    This function will increase the index until a valid action is reached. If an agent's action is valid,
-    it will not be increased, only those that are marked as invalid. Returns the updated index and the
-    dictionary with the valid actions """
-
-    dict_actions_ = {i: actions[a, i] for i, a in zip(environment.agents.keys(), current_action_index.astype(int))}
-    safe_action_mask_ = np.asarray(environment.check_actions(dict_actions_))
-
-    while not all(safe_action_mask_):
-        # Move the index if the agent action is not valid #
-        current_action_index = current_action_index + ( 1 - safe_action_mask_).astype(int)
-        dict_actions_ = {i: actions[a,i] for i, a in zip(environment.agents.keys(), current_action_index)}
-        safe_action_mask_ = np.asarray(environment.check_actions(dict_actions_))
-
-    return dict_actions_, current_action_index
-
-
 def evalEnv(ind, local_env):
-    """ Evaluate the environment. If the environment is stochastic, every evaluation will
-    return a different value of reward. The best individual is that one that survives on average
-    across a lot of different generations, which is, the strongest-average-one. """
+    """ Evaluate the environment N_EVAL times. The individual is split into N agents actions
+    and each agent is evaluated on the environment. """
 
-    # Reset conditions #
-    local_env.reset()
-    fitness = 0
-    done_flag = False
+    individual = np.array(ind)
+    individual = individual.reshape(-1, N)  # Reshape the individual to be N agents x 101 steps
 
-    # Slice the individual array into agents actions #
-    # t0 -> [1,2,1,1]
-    # t1 -> [0,1,3,6]
-    # ...
-    # tN -> [2,7,1,7]
+    for _ in range(N_EVAL):
+        # Evaluate the individual N_EVAL times #
+        local_env.reset()
+        R = []
 
-    # Transform individual in agents actions #
-    action_array = np.asarray(np.split(ind, n_agents)).T
-    # Select first actions ...
-    actions_indexs = np.zeros(n_agents).astype(int) # The indexes of the actions of the individual for every agent #
-    # Process new valid actions for the invalid ones and new action indexes #
-    dict_actions, actions_indexs = select_valid_action(local_env, action_array, actions_indexs)
+        for t in range(len(individual)):
+            # Take the actions at instant t and create a dictionary of actions #
+            actions = {i: a for i, a in enumerate(individual[t, :])}
+            _, rewards, dones, _ = local_env.step(actions)
 
-    # If the initial action is valid, begin to evaluate #
-    while not done_flag:
+            R.append(np.sum(list(rewards.values())))
 
-        # ACT!
-        _, reward_dict, dones_dict, _ = local_env.step(dict_actions)
-        # Process new valid actions for the invalid ones and new action indexes #
-        dict_actions, actions_indexs = select_valid_action(local_env, action_array, actions_indexs)
-        # Accumulate the reward into the fitness #
-        fitness += np.sum(list(reward_dict.values()))
-        # Check if done #
-        done_flag = any(list(dones_dict.values()))
-
-
-    return fitness,
-
+    return np.mean(R),
 
 toolbox.register("evaluate", evalEnv, local_env=env)
 toolbox.register("mate", cxTwoPointCopy)
 toolbox.register("mutate", tools.mutFlipBit, indpb=0.05)
 toolbox.register("select", tools.selTournament, tournsize=5)
 
-
-pool = multiprocessing.Pool()
-toolbox.register("map", pool.map)
+# pool = multiprocessing.Pool()
+# toolbox.register("map", pool.map)
 
 
 def optimize(local_env, save=False):
-
 
     random.seed(64)
 
@@ -173,52 +168,36 @@ if __name__ == "__main__":
 
     np.random.seed(0)
 
-    # Create the environment to optimize #
-    my_env = SynchronousMultiAgentIGEnvironment(env_config=my_env_config)
-
-    done_flag, t = False, 0
-
-    R = 0
-
     # Initial reset #
-    my_env.reset()
+
+    env.reset()
 
     """ OPTIMIZE THE SCENARIO """
-    best = np.asarray(optimize(my_env, save=True))
+    best = np.asarray(optimize(env, save=True))
+    individual = np.asarray(best).reshape(-1, N)
 
-    # Evaluate for 10 scenarios #
-    for run in range(10):
+    env.eval()
 
-        t = 0
+    for run in range(N_EVAL):
+        # Evaluate the individual N_EVAL times #
+        env.reset()
         R = 0
-        # Initial reset #
-        my_env.reset()
 
-        # Evaluate the metrics of the solutions #
-        action_array = np.asarray(np.split(best, n_agents)).T
-        actions_indexs = np.zeros(n_agents).astype(int)
-        dict_actions, actions_indexs = select_valid_action(my_env, action_array, actions_indexs)
+        for t in range(len(individual)):
+            # Take the actions at instant t and create a dictionary of actions #
+            actions = {i: a for i, a in enumerate(individual[t, :])}
+            _, rewards, dones, _ = env.step(actions)
 
-        while not done_flag:
+            R += np.sum(list(rewards.values()))
 
-            _, reward_dict, dones_dict, info = my_env.step(dict_actions)
+            # Register positions and metrics #
+            metrics.register_step(run_num=run, step=t, metrics=[R, env.mse])
+            for veh_id, veh in enumerate(env.fleet.vehicles):
+                paths.register_step(run_num=run, step=t, metrics=[veh_id, veh.position[0], veh.position[1]])
 
-            dict_actions, actions_indexs = select_valid_action(my_env, action_array, actions_indexs)
 
-            # Accumulate the reward into the fitness #
-            R += np.sum(list(reward_dict.values()))
-            # Check if done #
-            done_flag = any(list(dones_dict.values()))
+metrics.register_experiment()
+paths.register_experiment()
 
-            metrics = [R, np.mean(my_env.uncertainty), my_env.max_sensed_value, np.sum(info['collisions'])]
 
-            evaluator.register_step(run_num=run, step=t, metrics=[*metrics])
-
-            t += 1
-
-            my_env.render()
-            plt.pause(0.1)
-
-evaluator.register_experiment()
-
-pool.close()
+# pool.close()
