@@ -244,6 +244,7 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 		self.infos = {}
 
 		""" Regression related values """
+		self.static_benchmark = env_config['static_benchmark']
 		if env_config['dynamic'] == 'OilSpillEnv':
 			self.ground_truth = OilSpillEnv(self.env_config['navigation_map'], dt=1, flow=10, gamma=1, kc=1, kw=1)
 		elif env_config['dynamic'] == 'Shekel':
@@ -329,14 +330,18 @@ class SynchronousMultiAgentIGEnvironment(MultiAgentEnv):
 
 		self.dones = {i: self.agents[i].done for i in self._agent_ids}
 
-
-
 		# Update the ground truth state and pass the field to agents #
-		self.ground_truth.step()
-		self.update_vehicles_ground_truths()
+		if not self.static_benchmark:
+			self.ground_truth.step()
+			self.update_vehicles_ground_truths()
 
 
 		return self.states, self.rewards, self.dones, {'collisions': [agent.collision for agent in self.agents.values()]}
+
+	def update_benchmark(self):
+		""" Update the benchmark function dynamic """
+		self.ground_truth.step()
+		self.update_vehicles_ground_truths()
 
 	def update_model(self):
 
@@ -606,6 +611,7 @@ if __name__ == '__main__':
 	                 'max_meas_distance': 5,
 	                 'min_meas_distance': 1,
 	                 'dynamic': 'Shekel',
+	                 'static_benchmark': True,
 	                 }
 
 	env = SynchronousMultiAgentIGEnvironment(env_config=my_env_config)

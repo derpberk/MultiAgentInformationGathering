@@ -3,12 +3,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.ndimage import gaussian_filter
 
-class OilSpillEnv():
+class OilSpillEnv:
 
-	def __init__(self, boundaries_map, dt=1, kw=0.5, kc=1, gamma=1, flow=50):
+	def __init__(self, boundaries_map, dt=1, kw=0.5, kc=1, gamma=1, flow=50, seed = 0):
 
 		# Environment parameters
 
+		self.seed = seed
+		np.random.seed(self.seed)
 		self.done = None
 		self.im0 = None
 		self.im1 = None
@@ -45,7 +47,7 @@ class OilSpillEnv():
 		self.ax = None
 		self.fig = None
 
-	def reset(self):
+	def reset(self, random_benchmark = True):
 		"""Reset the env variables"""
 
 		if not self.init:
@@ -53,14 +55,17 @@ class OilSpillEnv():
 
 		self.done = False
 
-		random_indx = np.random.choice(np.arange(0,len(self.visitable_positions)), np.random.randint(1,3), replace=False)
+		if random_benchmark:
+			self.seed += 1
+
+		random_indx = np.random.RandomState(self.seed).choice(np.arange(0,len(self.visitable_positions)), np.random.RandomState(self.seed).randint(1,3), replace=False)
 		self.source_points = np.copy(self.visitable_positions[random_indx])
-		self.wind_speed = np.random.rand(2) * 2 - 1
+		self.wind_speed = np.random.RandomState(self.seed).rand(2) * 2 - 1
 		self.source_fuel = 10000
 		self.contamination_position = np.copy(self.source_points)
 
-		x0 = np.random.randint(0, self.boundaries_map.shape[0])
-		y0 = np.random.randint(0, self.boundaries_map.shape[1])
+		x0 = np.random.RandomState(self.seed).randint(0, self.boundaries_map.shape[0])
+		y0 = np.random.RandomState(self.seed).randint(0, self.boundaries_map.shape[1])
 
 		# Current vector field
 		self.u = np.sin(np.pi * (self.x - x0) / 50) * np.cos(np.pi * (self.y - y0) / 50)
@@ -73,7 +78,7 @@ class OilSpillEnv():
 		""" Process the action and update the environment state """
 
 		assert self.init, "Environment not initiated!"
-		
+
 		# Generate new particles
 		for source_point in self.source_points:
 			# While there is enough fuel
@@ -137,13 +142,13 @@ class OilSpillEnv():
 			self.im0 = self.ax[0].scatter(self.contamination_position[:, 0], self.contamination_position[:, 1])
 			rendered = np.copy(self.boundaries_map) * self.ground_truth_field
 			rendered[self.boundaries_map == 0] = np.nan
-			self.im1 = self.ax[1].imshow(rendered, interpolation=None, cmap='jet', vmin=0, vmax=30)
+			self.im1 = self.ax[1].imshow(rendered.T, interpolation=None, cmap='jet', vmin=0, vmax=3)
 
 		else:
 			rendered = np.copy(self.boundaries_map) * self.ground_truth_field
 			rendered[self.boundaries_map == 0] = np.nan
 			self.im0.set_offsets(self.contamination_position)
-			self.im1.set_data(rendered)
+			self.im1.set_data(rendered.T)
 
 		self.fig.canvas.draw()
 		self.fig.canvas.flush_events()
@@ -166,11 +171,14 @@ if __name__ == '__main__':
 	my_map = np.genfromtxt('/Users/samuel/MultiAgentInformationGathering/Environment/wesslinger_map.txt')
 
 
-	env = OilSpillEnv(my_map, dt=1, flow=10, gamma=1, kc=1, kw=1)
+	env = OilSpillEnv(my_map, dt=1, flow=30, gamma=1, kc=0.5, kw=0.5)
+	env.reset()
 	env.reset()
 
-	for _ in range(100):
-		env.step()
-		env.render()
+	for _ in range(10):
+		for _ in range(100):
+			env.step()
+			env.render()
+		env.reset(random_benchmark=False)
 
 	plt.show()

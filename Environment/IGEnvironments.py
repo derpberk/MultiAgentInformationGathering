@@ -1,15 +1,14 @@
 import gym
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 import numpy as np
-from sklearn.gaussian_process.kernels import RBF, ConstantKernel, WhiteKernel
+from sklearn.gaussian_process.kernels import RBF
 from sklearn.metrics import mean_squared_error
 from sklearn.gaussian_process import GaussianProcessRegressor
-from .OilSpillEnvironment import OilSpillEnv
-from .ShekelGroundTruth import Shekel
-from .Fleet import Fleet
-from .Vehicle import FleetState
+from OilSpillEnvironment import OilSpillEnv
+from ShekelGroundTruth import Shekel
+from Fleet import Fleet
+from Vehicle import FleetState
 import matplotlib.pyplot as plt
-
 
 class InformationGatheringEnv(MultiAgentEnv):
 
@@ -41,6 +40,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		# Reward related variables #
 		""" Regression related values """
+		self.random_benchmark = env_config['random_benchmark']
 		if env_config['dynamic'] == 'OilSpillEnv':
 			self.ground_truth = OilSpillEnv(self.env_config['navigation_map'], dt=1, flow=10, gamma=1, kc=1, kw=1)
 		elif env_config['dynamic'] == 'Shekel':
@@ -71,7 +71,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 		self.dones = {i: False for i in range(self.number_of_agents)}
 
 		# Reset the ground truth and set the value for
-		self.ground_truth.reset()
+		self.ground_truth.reset(self.random_benchmark)
 		self.update_vehicles_ground_truths()
 
 		# Reset the model #
@@ -321,7 +321,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		return np.asarray(list(map(self.fleet.vehicles[ind].is_the_position_valid, possible_points)))
 
-
+def SingleAgentPerception
 
 if __name__ == '__main__':
 
@@ -349,12 +349,13 @@ if __name__ == '__main__':
 		},
 		'movement_type': 'DIRECTIONAL',
 		'navigation_map': navigation_map,
-		'dynamic': 'Shekel',
+		'dynamic': 'OilSpillEnv',
 		'min_measurement_distance': 5,
 		'max_measurement_distance': 10,
 		'measurement_distance': 3,
 		'number_of_actions': 8,
-		'kernel_length_scale': 2
+		'kernel_length_scale': 2,
+		'random_benchmark': False,
 	}
 
 	# Create the environment #

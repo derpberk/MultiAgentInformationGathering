@@ -1,5 +1,5 @@
 import numpy as np
-from .Vehicle import Vehicle, FleetState
+from Vehicle import Vehicle, FleetState
 import matplotlib.pyplot as plt
 
 

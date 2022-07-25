@@ -68,15 +68,22 @@ class Shekel(object):
             
         self.ground_truth_field = self.normalized_z
 
-    def reset(self):
+    def reset(self, random_benchmark = True):
+
+
+        if random_benchmark:
+            self.seed += 1
+
         """ Reset ground Truth """
         # Peaks positions bounded from 1 to 9 in every axis
-        self.number_of_peaks = np.random.randint(1,self.max_number_of_peaks+1)
-        self.A = np.random.rand(self.number_of_peaks, 2) * self.xy_size * 0.9 + self.xy_size*0.1
+        self.number_of_peaks = np.random.RandomState(self.seed).randint(1,self.max_number_of_peaks+1)
+        self.A = np.random.RandomState(self.seed).rand(self.number_of_peaks, 2) * self.xy_size * 0.9 + self.xy_size*0.1
         # Peaks size bounded from a minimum 2.5 to 5
-        self.C = np.random.rand(self.number_of_peaks, 1) * 4 + 1
+        self.C = np.random.RandomState(self.seed).rand(self.number_of_peaks, 1) * 4 + 1
         # Reconstruct the field #
         self.create_field()
+
+
 
     def read(self, position=None):
 
@@ -107,11 +114,11 @@ if __name__ == "__main__":
 
     import matplotlib.pyplot as plt
 
-    ypacarai_map = np.genfromtxt('example_map.csv',delimiter=',',dtype=float)
-    gt = GroundTruth(1-ypacarai_map, 1, max_number_of_peaks=3, is_bounded=True, seed=10)
+    ypacarai_map = np.genfromtxt('./wesslinger_map.txt')
+    gt = Shekel(1-ypacarai_map, 1, max_number_of_peaks=3, is_bounded=True, seed=10)
 
-    for i in range(1):
-        gt.reset()
+    for i in range(10):
+        gt.reset(random_benchmark=False)
         gt.render()
 
 

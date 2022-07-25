@@ -14,6 +14,7 @@ from Evaluation.Utils.metrics_wrapper import MetricsDataCreator
 """ Compute Ground Truth """
 navigation_map = np.genfromtxt('/Users/samuel/MultiAgentInformationGathering/Environment/wesslinger_map.txt')
 N = 4
+same_evaluation_scenario = True
 env_config = {
     'fleet_configuration': {
         'vehicle_configuration': {
@@ -37,7 +38,8 @@ env_config = {
     'max_measurement_distance': 10,
     'measurement_distance': 3,
     'number_of_actions': 8,
-    'kernel_length_scale': 2
+    'kernel_length_scale': 2,
+    'random_benchmark': same_evaluation_scenario
 }
 
 
