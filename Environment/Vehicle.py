@@ -9,6 +9,9 @@ class FleetState(Enum):
 	COLLIDED = 1
 	ON_WAY = 2
 	GOAL_REACHED = 3
+	LAST_ACTION = 4
+	FINISHED = 5
+
 
 class Vehicle:
 
@@ -35,6 +38,7 @@ class Vehicle:
 		self.target_position = None
 		# The travelled distance #
 		self.distance = 0
+		self.max_travel_distance = vehicle_configuration['max_travel_distance']
 
 
 	def reset_vehicle(self):
@@ -70,6 +74,7 @@ class Vehicle:
 
 	def set_target(self, target_position):
 		""" Set the target position. Put the vehicle state to ON_WAY """
+		assert self.vehicle_state not in [FleetState.FINISHED, FleetState.LAST_ACTION], "The vehicle cannot move anymore!"
 		self.target_position = target_position
 		self.vehicle_state = FleetState.ON_WAY
 
@@ -79,24 +84,33 @@ class Vehicle:
 		original_position = self.position.copy()
 
 		# If the vehicle is in a collision state, return to WAITING_FOR_ACTION #
-		if self.vehicle_state == FleetState.COLLIDED:
-			self.vehicle_state = FleetState.WAITING_FOR_ACTION
-			self.target_position = self.position.copy()
+		if self.vehicle_state != FleetState.LAST_ACTION:
 
-		# If a position is targeted, then update the position #
-		elif self.vehicle_state == FleetState.ON_WAY:
-			direction_vector = (self.target_position - self.position) / np.linalg.norm(self.target_position - self.position + 1e-6)
-			is_valid = self.step_with_direction(direction_vector)
-			# Update the state depending on the validity of the step
-			self.vehicle_state = FleetState.ON_WAY if is_valid else FleetState.COLLIDED
-			# Check if the target has been reached and change the state to WAITING #
-			if np.linalg.norm(self.position - self.target_position) < self.target_threshold:
+			if self.vehicle_state == FleetState.COLLIDED:
 				self.vehicle_state = FleetState.WAITING_FOR_ACTION
+				self.target_position = self.position.copy()
+
+			# If a position is targeted, then update the position #
+			elif self.vehicle_state == FleetState.ON_WAY:
+				direction_vector = (self.target_position - self.position) / np.linalg.norm(self.target_position - self.position + 1e-6)
+				is_valid = self.step_with_direction(direction_vector)
+				# Update the state depending on the validity of the step
+				self.vehicle_state = FleetState.ON_WAY if is_valid else FleetState.COLLIDED
+				# Check if the target has been reached and change the state to WAITING #
+				if np.linalg.norm(self.position - self.target_position) < self.target_threshold:
+					self.vehicle_state = FleetState.WAITING_FOR_ACTION
+
+
+			# Update the distance #
+			self.distance += np.linalg.norm(original_position - self.position)
+
+			# If the maximum distance is reached, then change the state to FINISHED #
+
+			if self.distance >= self.max_travel_distance:
+				self.vehicle_state = FleetState.LAST_ACTION
 
 		# Take a measurement if reached #
-		measurement = self.take_measurement() if self.vehicle_state == FleetState.WAITING_FOR_ACTION or self.vehicle_state == FleetState.COLLIDED else None
-		# Update the distance #
-		self.distance += np.linalg.norm(original_position - self.position)
+		measurement = self.take_measurement() if self.vehicle_state in [FleetState.WAITING_FOR_ACTION, FleetState.COLLIDED, FleetState.LAST_ACTION] else None
 
 		return self.vehicle_state, measurement
 
@@ -147,7 +161,7 @@ if __name__ == '__main__':
 	plt.ion()
 
 	""" Test the single agent """
-	navigation_map = np.genfromtxt('/Users/samuel/MultiAgentInformationGathering/Environment/wesslinger_map.txt')
+	navigation_map = np.genfromtxt('./wesslinger_map.txt')
 
 	plt.matshow(navigation_map)
 

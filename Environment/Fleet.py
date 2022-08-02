@@ -12,39 +12,69 @@ class Fleet:
 		# Create a bunch of vehicles
 		self.vehicles = [Vehicle(vehicle_id=i,
 		                         initial_position=fleet_configuration['initial_positions'][i],
-		                         vehicle_configuration=fleet_configuration['vehicle_configuration']) for i in
-		                 range(self.number_of_vehicles)]
+		                         vehicle_configuration=fleet_configuration['vehicle_configuration']) for i in range(self.number_of_vehicles)]
 
 		# Fleet state #
 		self.fleet_state = [None for _ in range(self.number_of_vehicles)]
 		self.measurements = [None for _ in range(self.number_of_vehicles)]
-		self.dones = [False]*self.number_of_vehicles
-		self.max_distance = fleet_configuration['max_distance']
+		self.active_vehicles = [True for _ in range(self.number_of_vehicles)]
 
 	def reset(self):
 
 		# Reset every vehicle #
 		self.measurements = [vehicle.reset_vehicle() for vehicle in self.vehicles]
-		self.fleet_state = [FleetState.WAITING_FOR_ACTION for _ in range(self.number_of_vehicles)]
-		self.dones = [False] * self.number_of_vehicles
+		self.fleet_state = [vehicle.vehicle_state for vehicle in self.vehicles]
+		self.active_vehicles = [True for _ in range(self.number_of_vehicles)]
 
 		return self.measurements
 
 
 	def set_target_position(self, agent_id, target_position):
 		""" Set the target position for the agents  with id agent_id"""
+		assert self.fleet_state[agent_id] is not FleetState.FINISHED, "The vehicle has finished and cannot move anymore!"
 		self.vehicles[agent_id].set_target(target_position)
 		self.fleet_state[agent_id] = FleetState.ON_WAY
 
 	def step(self):
-		""" Compute one step for every vehicle and update their states if necessary.
-		Return the state and measurements when a change in the state is encountered. """
+		""" Compute one step for every vehicle and retreive the measurements and new states.
+		 Note that when the vehiclehas finished or is moving, the measurement is None. """
 
 		for vehicle_id, vehicle in enumerate(self.vehicles):
 
-			self.fleet_state[vehicle_id], self.measurements[vehicle_id] = vehicle.step()
+			# Only update the vehicle if it is not finished #
+			if self.fleet_state[vehicle_id] != FleetState.FINISHED:
+				self.fleet_state[vehicle_id], self.measurements[vehicle_id] = vehicle.step()
 
-		self.dones = [vehicle.distance > self.max_distance for vehicle in self.vehicles]
+		return self.fleet_state, self.measurements
+
+	def update_syncronously(self):
+		""" Update the state of the fleet until all vehicles are not in ON_WAY state """
+
+		# The vehicle state is FINISHED when the last updte was LAST_ACTION #
+		for vehicle_id, vehicle in enumerate(self.vehicles):
+			if vehicle.vehicle_state == FleetState.LAST_ACTION:
+				vehicle.vehicle_state = FleetState.FINISHED
+				self.fleet_state[vehicle_id] = FleetState.FINISHED
+
+		while any(s == FleetState.ON_WAY for s in self.fleet_state):
+			self.step()
+
+		return self.fleet_state, self.measurements
+
+	def update_asyncronously(self):
+		""" Update the state of the fleet until at least one vehicle is not in ON_WAY state """
+
+		# The vehicle state is FINISHED when the last updte was LAST_ACTION #
+		for vehicle_id, vehicle in enumerate(self.vehicles):
+			if vehicle.vehicle_state == FleetState.LAST_ACTION:
+				vehicle.vehicle_state = FleetState.FINISHED
+				self.fleet_state[vehicle_id] = FleetState.FINISHED
+
+		# Take steps until at least one vehicle is not in ON_WAY state and this state is not LAST_ACTION #
+		while all(s in [FleetState.LAST_ACTION, FleetState.FINISHED, FleetState.ON_WAY] for s in self.fleet_state):
+			self.step()
+			if all(s in [FleetState.FINISHED, FleetState.LAST_ACTION] for s in self.fleet_state):
+				break
 
 		return self.fleet_state, self.measurements
 
@@ -56,7 +86,7 @@ if __name__ == '__main__':
 
 	plt.ion()
 
-	navigation_map = np.genfromtxt('/Users/samuel/MultiAgentInformationGathering/Environment/wesslinger_map.txt')
+	navigation_map = np.genfromtxt('./wesslinger_map.txt')
 	N = 4
 	plt.imshow(navigation_map)
 	plt.show()

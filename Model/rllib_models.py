@@ -1,13 +1,13 @@
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 import torch
+from torch import nn
 
 
-class FullVisualQModel(TorchModelV2):
+class FullVisualQModel(TorchModelV2, nn.Module):
 
     def __init__(self, obs_space, action_space, num_outputs, model_config, name):
-        super().__init__(obs_space, action_space, num_outputs, model_config, name)
-
-        self.num_outputs = action_space.n
+        nn.Module.__init__(self)
+        TorchModelV2.__init__(self, obs_space, action_space, num_outputs, model_config, name)
 
         """ Create a squential model with convolutional neural network with 3 convolutional layers """
         self.cnn = torch.nn.Sequential(
@@ -28,34 +28,20 @@ class FullVisualQModel(TorchModelV2):
             torch.nn.ReLU(),
             torch.nn.Linear(256, 256),
             torch.nn.ReLU(),
-            torch.nn.Linear(256, 256))
-
-        """ Create a sequential model with 3 fully connected layers with an output size of self.num_outputs for the q values """
-        self.q_fc = torch.nn.Sequential(
-            torch.nn.Linear(256, 128),
-            torch.nn.ReLU(),
-            torch.nn.Linear(128, 128),
-            torch.nn.ReLU(),
-            torch.nn.Linear(128, self.num_outputs))
-
-        """ Create a sequential model with 3 fully connected layers with an output size of self.num_outputs for the value function """
-        self.v_fc = torch.nn.Sequential(
-            torch.nn.Linear(256, 64),
-            torch.nn.ReLU(),
-            torch.nn.Linear(64, 64),
-            torch.nn.ReLU(),
-            torch.nn.Linear(64, 1))
+            torch.nn.Linear(256, num_outputs))
 
         self.v_vals = None
+
+        self.v_fc = torch.nn.Linear(num_outputs, 1)
 
     def forward(self, input_dict, state, seq_lens):
         """ Get the state from input_dict and forward in this order: 1) cnn, 2) fc, 3) q_fc, 4) v_fc """
         x = input_dict["obs"]
         x = self.cnn(x)
-        x = self.fc(x)
-        q_vals = self.q_fc(x)
-        self.v_vals = self.v_fc(x)  # Save value function for later use
-        return q_vals
+        q_vals = self.fc(x)
+        self.v_vals = self.v_fc(q_vals)  # Save value function for later use
+
+        return q_vals, state
 
 
     def value_function(self):

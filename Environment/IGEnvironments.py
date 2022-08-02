@@ -9,21 +9,24 @@ from ShekelGroundTruth import Shekel
 from Fleet import Fleet
 from Vehicle import FleetState
 import matplotlib.pyplot as plt
+from gym.spaces import Box
 
 class InformationGatheringEnv(MultiAgentEnv):
 
 	def __init__(self, env_config):
 
 		super().__init__()
+
 		self.env_config = env_config
 
 		# Create a fleet of N vehicles #
 		self.fleet = Fleet(fleet_configuration=env_config['fleet_configuration'])
 		self.number_of_agents = env_config['fleet_configuration']['number_of_vehicles']
-		self._agents_ids = list(range(self.number_of_agents))
+		self.agents_ids = list(range(self.number_of_agents))
+		self._agent_ids = set(range(self.number_of_agents))
 
 		# Define the observation space and the action space #
-		self.observation_space = gym.spaces.Box(low=0.0, high=1.0, shape=(5, *env_config['navigation_map'].shape))
+		self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(5, *env_config['navigation_map'].shape))
 		if env_config['movement_type'] == 'DIRECTIONAL':
 			self.action_space = gym.spaces.Discrete(env_config['number_of_actions'])
 		elif env_config['movement_type'] == 'DIRECTIONAL_DISTANCE':
@@ -62,6 +65,8 @@ class InformationGatheringEnv(MultiAgentEnv):
 		self.regret = np.zeros((self.number_of_agents,))
 		self.mse = None
 		self._eval = False
+		self.uncertainty_component = 0
+		self.regret_component = 0
 
 	def reset(self):
 		""" Reset all the variables and the fleet """
@@ -69,6 +74,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 		self.resetted = True
 
 		self.dones = {i: False for i in range(self.number_of_agents)}
+		self.dones['__all__'] = False
 
 		# Reset the ground truth and set the value for
 		self.ground_truth.reset(self.random_benchmark)
@@ -80,6 +86,8 @@ class InformationGatheringEnv(MultiAgentEnv):
 		self.mu = None
 		self.uncertainty = None
 		self.Sigma = None
+		self.uncertainty_component = 0
+		self.regret_component = 0
 
 		# Reset the vehicles and take the first measurements #
 		self.measurements = self.fleet.reset()
@@ -100,7 +108,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 		""" Fit the gaussian process using the measurements and return a new inferred map and its uncertainty """
 
 		if agents_ids is None:
-			agents_ids = self._agents_ids
+			agents_ids = self.agents_ids
 		else:
 			new_measurements = [new_measurements[i] for i in agents_ids]
 
@@ -115,7 +123,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 		# Obtain the max value obtained by the fleet to compute the regret #
 		self.max_sensed_value = self.measured_values.max()
 		# Compute the regret for those agents #
-		self.regret[agents_ids] = 1 - self.measured_values[-len(agents_ids):] - self.max_sensed_value
+		self.regret[agents_ids] = - self.measured_values[-len(agents_ids):] + self.max_sensed_value
 
 		self.GaussianProcess.fit(self.measured_locations, self.measured_values)
 
@@ -144,14 +152,14 @@ class InformationGatheringEnv(MultiAgentEnv):
 			"""
 
 		if agents_ids is None:
-			agents_ids = self._agents_ids
+			agents_ids = self.agents_ids
 
 		Tr = np.trace(self.Sigma)
 
-		uncertainty_component = (self.H_ - Tr) / self.number_of_agents
-		regret_component = 1 - np.clip(self.regret, 0.0, 1.0)
+		self.uncertainty_component = (self.H_ - Tr) / self.number_of_agents
+		self.regret_component = 1 + np.clip(self.regret, 0.0, 0.9)
 
-		reward = uncertainty_component * regret_component
+		reward = self.uncertainty_component * self.regret_component
 
 		reward[collision_array] = -1.0
 
@@ -162,7 +170,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 	def update_states(self, agent_ids=None):
 		""" Update the states """
 		if agent_ids is None:
-			agent_ids = self._agents_ids
+			agent_ids = self.agents_ids
 
 		states = {i: self.individual_state(i) for i in agent_ids}
 
@@ -180,7 +188,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		# Third channel: Other agents channel
 		other_agents_map = np.zeros_like(self.env_config['navigation_map'])
-		other_agents_ids = np.copy(self._agents_ids)
+		other_agents_ids = np.copy(self.agents_ids)
 		other_agents_ids = np.delete(other_agents_ids, agent_indx)
 
 		for agent_id in other_agents_ids:
@@ -190,8 +198,8 @@ class InformationGatheringEnv(MultiAgentEnv):
 		return np.concatenate((nav_map[np.newaxis],
 		                       position_map[np.newaxis],
 		                       other_agents_map[np.newaxis],
-		                       self.mu[np.newaxis],
-		                       self.uncertainty[np.newaxis]))
+		                       np.clip(self.mu[np.newaxis], a_min = -1.0, a_max = 1.0),
+		                       np.clip(self.uncertainty[np.newaxis], a_min = -1.0, a_max= 1.0)))
 
 	def update_vehicles_ground_truths(self):
 		for vehicle in self.fleet.vehicles:
@@ -245,15 +253,15 @@ class InformationGatheringEnv(MultiAgentEnv):
 		new_fleet_state = None
 
 		if self.env_config['movement_type'] == 'DIRECTIONAL':
-			# Wait until all vehicles have arrived #
-			while any(s == FleetState.ON_WAY for s in self.fleet.fleet_state):
-				new_fleet_state, new_measurements = self.fleet.step()
+			# Update until all vehicles have arrived to their goals #
+			new_fleet_state, new_measurements = self.fleet.update_syncronously()
 		elif self.env_config['movement_type'] == 'DIRECTIONAL_DISTANCE':
-			while not any(s != FleetState.ON_WAY for s in self.fleet.fleet_state):
-				new_fleet_state, new_measurements = self.fleet.step()
+			# Update until at least one vehicle has arrived to their goals#
+			new_fleet_state, new_measurements = self.fleet.update_asyncronously()
 
-		# Retrieve the ids of the agents that are ready to receive a new action #
-		ready_agents_ids = [i for i, veh_state in enumerate(new_fleet_state) if veh_state == FleetState.WAITING_FOR_ACTION or veh_state == FleetState.COLLIDED]
+		# Retrieve the ids of the agents that must return a state and a reward #
+		ready_agents_ids = [i for i, veh_state in enumerate(new_fleet_state) if veh_state in [FleetState.WAITING_FOR_ACTION, FleetState.COLLIDED, FleetState.LAST_ACTION]]
+		done_agents_vals = [new_fleet_state[agents_id] == FleetState.LAST_ACTION for agents_id in ready_agents_ids]
 
 		# Update the model
 		self.mu, self.uncertainty, self.Sigma = self.update_model(new_measurements=new_measurements, agents_ids=ready_agents_ids)
@@ -266,14 +274,16 @@ class InformationGatheringEnv(MultiAgentEnv):
 		self.states = self.update_states(agent_ids=ready_agents_ids)
 
 		# Compute if the agents have finished #
-		self.dones = {i: val for i, val in enumerate(self.fleet.dones)}
+		self.dones = {i: val for i, val in zip(ready_agents_ids, done_agents_vals)}
 
 		# Info is useless by the moment
-		self.infos = {i: None for i in range(self.number_of_agents)}
+		self.infos = {i: {} for i in ready_agents_ids}
 
 		# Update the ground truth state and pass the field to agents #
 		self.ground_truth.step()
 		self.update_vehicles_ground_truths()
+
+		self.dones['__all__'] = all([veh_state in [FleetState.LAST_ACTION, FleetState.FINISHED] for veh_state in self.fleet.fleet_state])
 
 		return self.states, self.rewards, self.dones, self.infos
 
@@ -290,7 +300,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 			self.s0 = self.axs[0].imshow(self.states[0][0], cmap='gray')
 
 			self.axs[1].set_title('Fleet positions')
-			self.s1 = self.axs[1].imshow(np.sum([s[1] for s in self.states.values()], axis=0), cmap='gray')
+			self.s1 = self.axs[1].imshow(np.sum([self.individual_state(i)[1] for i in range(self.number_of_agents)], axis=0), cmap='gray')
 
 			self.axs[2].set_title('Estimated model')
 			self.s2 = self.axs[2].imshow(self.mu, cmap='jet', vmin=0.0, vmax=1.0)
@@ -303,14 +313,14 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		else:
 
-			self.s1.set_data(np.sum([s[1] for s in self.states.values()], axis=0))
+			self.s1.set_data(np.sum([self.individual_state(i)[1] for i in range(self.number_of_agents)], axis=0))
 			self.s2.set_data(self.mu)
 			self.s3.set_data(self.uncertainty)
 			self.s4.set_data(self.ground_truth.ground_truth_field)
 
 			self.fig.canvas.draw()
 
-		plt.pause(0.02)
+		plt.pause(0.05)
 		plt.show()
 
 	def get_action_mask(self, ind):
@@ -321,13 +331,12 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		return np.asarray(list(map(self.fleet.vehicles[ind].is_the_position_valid, possible_points)))
 
-def SingleAgentPerception
 
 if __name__ == '__main__':
 
 	import matplotlib.pyplot as plt
 
-	navigation_map = np.genfromtxt('/Users/samuel/MultiAgentInformationGathering/Environment/wesslinger_map.txt')
+	navigation_map = np.genfromtxt('./wesslinger_map.txt')
 
 	N = 4
 
@@ -338,16 +347,16 @@ if __name__ == '__main__':
 				'navigation_map': navigation_map,
 				'target_threshold': 0.5,
 				'ground_truth': np.random.rand(50,50),
-				'measurement_size': np.array([2, 2])
+				'measurement_size': np.array([2, 2]),
+				'max_travel_distance': 100,
 			},
 			'number_of_vehicles': N,
-			'max_distance': 200,
 			'initial_positions': np.array([[15, 19],
 			                                [13, 19],
 			                                [18, 19],
 			                                [15, 22]])
 		},
-		'movement_type': 'DIRECTIONAL',
+		'movement_type': 'DIRECTIONAL_DISTANCE',
 		'navigation_map': navigation_map,
 		'dynamic': 'OilSpillEnv',
 		'min_measurement_distance': 5,
@@ -364,21 +373,40 @@ if __name__ == '__main__':
 	state = env.reset()
 	env.render()
 
-	done = False
+	dones = {i: False for i in range(N)}
+	dones['__all__'] = False
 
-	while not done:
+	H = []
+	reg = []
 
-		actions = {i: env.action_space.sample() for i in range(N) if i in state.keys()}
+	while not dones['__all__']:
+
+		actions = {i: env.action_space.sample() for i in dones.keys() if dones[i] == False and i != '__all__'}
+
+		print(""" ############################################################### """)
+		print("Action: ", actions)
+
 
 		states, rewards, dones, infos = env.step(actions)
 
-		print(rewards)
+		H.append(np.mean(env.uncertainty_component))
+		reg.append(np.mean(env.regret_component))
+
+
+		print("States: ", states.keys())
+		print("Rewards: ", rewards)
+		print("Dones: ", dones)
 		env.render()
 
-		done = all(list(dones.values()))
-
-		if done:
-			done = False
-			env.reset()
 
 	print("Finished!")
+	plt.show(block=True)
+
+	_,ax = plt.subplots(2,1)
+
+	ax[0].set_title('Uncertainty')
+	ax[0].plot(H)
+	ax[1].set_title('Regret')
+	ax[1].plot(reg)
+	plt.show(block=True)
+
