@@ -26,7 +26,17 @@ class InformationGatheringEnv(MultiAgentEnv):
 		self._agent_ids = set(range(self.number_of_agents))
 
 		# Define the observation space and the action space #
-		self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(5, *env_config['navigation_map'].shape))
+		self.observation_type = env_config['observation_type']
+
+		if self.observation_type == 'visual':
+			self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(5, *env_config['navigation_map'].shape))
+		elif self.observation_type == 'hybrid':
+			# The hybrid state is its position [x,y] and 3 images [fleet positions, mean-model, uncertainty] #
+			self.observation_space = gym.spaces.Dict({'visual_state': gym.spaces.Box(low=-1.0, high=1.0, shape=(3, *env_config['navigation_map'].shape)),
+			                                          'odometry': gym.spaces.Box(low=-1.0, high=1.0, shape=(2,))})
+		else:
+			raise NotImplementedError('This observation type is not defined. Pleas choose between: visual / hybrid')
+
 		if env_config['movement_type'] == 'DIRECTIONAL':
 			self.action_space = gym.spaces.Discrete(env_config['number_of_actions'])
 		elif env_config['movement_type'] == 'DIRECTIONAL_DISTANCE':
@@ -177,16 +187,8 @@ class InformationGatheringEnv(MultiAgentEnv):
 		return states
 
 	def individual_state(self, agent_indx):
+		""" Return the state of an individual agent """
 
-		# First channel: navigation/obstacle map
-		nav_map = np.copy(self.env_config['navigation_map'])
-
-		# Second channel: self-position map
-		position_map = np.zeros_like(self.env_config['navigation_map'])
-		agent_position = self.fleet.vehicles[agent_indx].position.astype(int)
-		position_map[agent_position[0], agent_position[1]] = 1.0
-
-		# Third channel: Other agents channel
 		other_agents_map = np.zeros_like(self.env_config['navigation_map'])
 		other_agents_ids = np.copy(self.agents_ids)
 		other_agents_ids = np.delete(other_agents_ids, agent_indx)
@@ -195,11 +197,29 @@ class InformationGatheringEnv(MultiAgentEnv):
 			agent_position = self.fleet.vehicles[agent_id].position.astype(int)
 			other_agents_map[agent_position[0], agent_position[1]] = 1.0
 
-		return np.concatenate((nav_map[np.newaxis],
-		                       position_map[np.newaxis],
-		                       other_agents_map[np.newaxis],
-		                       np.clip(self.mu[np.newaxis], a_min = -1.0, a_max = 1.0),
-		                       np.clip(self.uncertainty[np.newaxis], a_min = -1.0, a_max= 1.0)))
+		if self.observation_type == 'visual':
+
+			# First channel: navigation/obstacle map
+			nav_map = np.copy(self.env_config['navigation_map'])
+
+			# Second channel: self-position map
+			position_map = np.zeros_like(self.env_config['navigation_map'])
+			agent_position = self.fleet.vehicles[agent_indx].position.astype(int)
+			position_map[agent_position[0], agent_position[1]] = 1.0
+
+			return np.concatenate((nav_map[np.newaxis],
+			                       position_map[np.newaxis],
+			                       other_agents_map[np.newaxis],
+			                       np.clip(self.mu[np.newaxis], a_min = -1.0, a_max = 1.0),
+			                       np.clip(self.uncertainty[np.newaxis], a_min = -1.0, a_max= 1.0)))
+
+		elif self.observation_type == 'hybrid':
+
+			return {'visual_state': np.concatenate((self.mu[np.newaxis],
+			                                        self.uncertainty[np.newaxis],
+			                                        other_agents_map[np.newaxis])),
+			        'odometry': self.fleet.vehicles[agent_indx].position/self.env_config['navigation_map'].shape}
+
 
 	def update_vehicles_ground_truths(self):
 		for vehicle in self.fleet.vehicles:
@@ -297,10 +317,15 @@ class InformationGatheringEnv(MultiAgentEnv):
 			self.fig, self.axs = plt.subplots(1, 5)
 
 			self.axs[0].set_title('Navigation map')
-			self.s0 = self.axs[0].imshow(self.states[0][0], cmap='gray')
+			self.s0 = self.axs[0].imshow(self.env_config['navigation_map'], cmap='gray')
 
 			self.axs[1].set_title('Fleet positions')
-			self.s1 = self.axs[1].imshow(np.sum([self.individual_state(i)[1] for i in range(self.number_of_agents)], axis=0), cmap='gray')
+			if self.observation_type == 'visual':
+				self.s1 = self.axs[1].imshow(np.sum([self.individual_state(i)[1] for i in range(self.number_of_agents)], axis=0), cmap='gray')
+			elif self.observation_type == 'hybrid':
+				self.s1 = self.axs[1].imshow(np.sum([self.individual_state(i)['visual_state'][2] for i in range(self.number_of_agents)], axis=0), cmap='gray')
+			else:
+				raise NotImplementedError('Cannot render with an invalid observation type.')
 
 			self.axs[2].set_title('Estimated model')
 			self.s2 = self.axs[2].imshow(self.mu, cmap='jet', vmin=0.0, vmax=1.0)
@@ -313,7 +338,11 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		else:
 
-			self.s1.set_data(np.sum([self.individual_state(i)[1] for i in range(self.number_of_agents)], axis=0))
+			if self.observation_type == 'visual':
+				self.s1.set_data(np.sum([self.individual_state(i)[1] for i in range(self.number_of_agents)], axis=0))
+			elif self.observation_type == 'hybrid':
+				self.s1.set_data(np.sum([self.individual_state(i)['visual_state'][2] for i in range(self.number_of_agents)], axis=0))
+
 			self.s2.set_data(self.mu)
 			self.s3.set_data(self.uncertainty)
 			self.s4.set_data(self.ground_truth.ground_truth_field)
@@ -365,6 +394,7 @@ if __name__ == '__main__':
 		'number_of_actions': 8,
 		'kernel_length_scale': 2,
 		'random_benchmark': False,
+		'observation_type': 'hybrid'
 	}
 
 	# Create the environment #
@@ -393,7 +423,7 @@ if __name__ == '__main__':
 		reg.append(np.mean(env.regret_component))
 
 
-		print("States: ", states.keys())
+		print("States: ", states)
 		print("Rewards: ", rewards)
 		print("Dones: ", dones)
 		env.render()
@@ -402,7 +432,7 @@ if __name__ == '__main__':
 	print("Finished!")
 	plt.show(block=True)
 
-	_,ax = plt.subplots(2,1)
+	_, ax = plt.subplots(2, 1)
 
 	ax[0].set_title('Uncertainty')
 	ax[0].plot(H)

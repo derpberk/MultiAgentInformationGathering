@@ -15,7 +15,6 @@ config = DEFAULT_CONFIG.copy()
 navigation_map = np.genfromtxt('../Environment/wesslinger_map.txt')
 N = 4
 
-N = 4
 same_evaluation_scenario = True
 env_config = {
 		'fleet_configuration': {
