@@ -77,6 +77,9 @@ class InformationGatheringEnv(MultiAgentEnv):
 		self._eval = False
 		self.uncertainty_component = 0
 		self.regret_component = 0
+		self.number_of_collisions = np.zeros(shape = (self.number_of_agents,))
+		self.max_collisions = env_config['max_collisions']
+		self._eval = env_config['eval_mode']
 
 	def reset(self):
 		""" Reset all the variables and the fleet """
@@ -98,6 +101,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 		self.Sigma = None
 		self.uncertainty_component = 0
 		self.regret_component = 0
+		self.number_of_collisions[:] = 0
 
 		# Reset the vehicles and take the first measurements #
 		self.measurements = self.fleet.reset()
@@ -270,39 +274,47 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		# Step until any vehicle has completed (or failed its goal) #
 		new_measurements = None
-		new_fleet_state = None
 
 		if self.env_config['movement_type'] == 'DIRECTIONAL':
 			# Update until all vehicles have arrived to their goals #
-			new_fleet_state, new_measurements = self.fleet.update_syncronously()
+			_, new_measurements = self.fleet.update_syncronously()
 		elif self.env_config['movement_type'] == 'DIRECTIONAL_DISTANCE':
 			# Update until at least one vehicle has arrived to their goals#
-			new_fleet_state, new_measurements = self.fleet.update_asyncronously()
+			_, new_measurements = self.fleet.update_asyncronously()
 
 		# Retrieve the ids of the agents that must return a state and a reward #
-		ready_agents_ids = [i for i, veh_state in enumerate(new_fleet_state) if veh_state in [FleetState.WAITING_FOR_ACTION, FleetState.COLLIDED, FleetState.LAST_ACTION]]
-		done_agents_vals = [new_fleet_state[agents_id] == FleetState.LAST_ACTION for agents_id in ready_agents_ids]
+		ready_agents_ids = [i for i, veh_state in enumerate(self.fleet.fleet_state) if veh_state in [FleetState.WAITING_FOR_ACTION, FleetState.COLLIDED, FleetState.LAST_ACTION]]
+
+		# Compute those agents that collided and add 1 collision to their counter #
+		collision_array = [s == FleetState.COLLIDED for s in self.fleet.fleet_state]
+		# Accumulate every agent collision #
+		self.number_of_collisions += np.array(collision_array).astype(int)
+		# For every agent, change its state to final if its number of collisions is equal to the maximum number of collisions #
+		for agent_id in self.agents_ids:
+			if self.number_of_collisions[agent_id] >= self.max_collisions:
+				self.fleet.set_state(agent_id, FleetState.LAST_ACTION)
+
+		done_agents_vals = [self.fleet.fleet_state[agents_id] == FleetState.LAST_ACTION for agents_id in ready_agents_ids]
 
 		# Update the model
 		self.mu, self.uncertainty, self.Sigma = self.update_model(new_measurements=new_measurements, agents_ids=ready_agents_ids)
 
 		# Compute the rewards for those finished agents #
-		collision_array = [s == FleetState.COLLIDED for s in self.fleet.fleet_state]
-		self.rewards = self.reward_function(collision_array = collision_array, agents_ids=ready_agents_ids)
+		self.rewards = self.reward_function(collision_array=collision_array, agents_ids=ready_agents_ids)
+		self.number_of_collisions += np.array([int(collision) for collision in collision_array])
 
 		# Compute the states for those same agents #
 		self.states = self.update_states(agent_ids=ready_agents_ids)
 
-		# Compute if the agents have finished #
-		self.dones = {i: val for i, val in zip(ready_agents_ids, done_agents_vals)}
-
 		# Info is useless by the moment
-		self.infos = {i: {} for i in ready_agents_ids}
+		self.infos = {i: {'Collisions': self.number_of_collisions[i]} for i in ready_agents_ids}
 
 		# Update the ground truth state and pass the field to agents #
 		self.ground_truth.step()
 		self.update_vehicles_ground_truths()
 
+		# Compute if the agents have finished #
+		self.dones = {i: val for i, val in zip(ready_agents_ids, done_agents_vals)}
 		self.dones['__all__'] = all([veh_state in [FleetState.LAST_ACTION, FleetState.FINISHED] for veh_state in self.fleet.fleet_state])
 
 		return self.states, self.rewards, self.dones, self.infos
@@ -385,7 +397,7 @@ if __name__ == '__main__':
 			                                [18, 19],
 			                                [15, 22]])
 		},
-		'movement_type': 'DIRECTIONAL_DISTANCE',
+		'movement_type': 'DIRECTIONAL',
 		'navigation_map': navigation_map,
 		'dynamic': 'OilSpillEnv',
 		'min_measurement_distance': 5,
@@ -394,14 +406,14 @@ if __name__ == '__main__':
 		'number_of_actions': 8,
 		'kernel_length_scale': 2,
 		'random_benchmark': False,
-		'observation_type': 'hybrid'
+		'observation_type': 'visual',
+		'max_collisions':10,
 	}
 
 	# Create the environment #
 	env = InformationGatheringEnv(env_config=env_config)
 
 	state = env.reset()
-	env.render()
 
 	dones = {i: False for i in range(N)}
 	dones['__all__'] = False
@@ -423,14 +435,15 @@ if __name__ == '__main__':
 		reg.append(np.mean(env.regret_component))
 
 
-		print("States: ", states)
+		print("States: ", states.keys())
 		print("Rewards: ", rewards)
 		print("Dones: ", dones)
+		print("Info: ", infos)
 		env.render()
 
 
 	print("Finished!")
-	plt.show(block=True)
+	# plt.show(block=True)
 
 	_, ax = plt.subplots(2, 1)
 

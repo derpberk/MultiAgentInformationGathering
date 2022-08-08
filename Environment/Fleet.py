@@ -17,7 +17,6 @@ class Fleet:
 		# Fleet state #
 		self.fleet_state = [None for _ in range(self.number_of_vehicles)]
 		self.measurements = [None for _ in range(self.number_of_vehicles)]
-		self.active_vehicles = [True for _ in range(self.number_of_vehicles)]
 
 	def reset(self):
 
@@ -81,6 +80,14 @@ class Fleet:
 	def get_positions(self):
 
 		return np.asarray([vehicle.position for vehicle in self.vehicles])
+
+	def set_state(self, agent_id, veh_state):
+		""" Set state of given agent """
+		assert agent_id in [veh.agent_id for veh in self.vehicles], "Agent id {} is not in the fleet".format(agent_id)
+		assert veh_state in FleetState, "State {} is not valid".format(state)
+
+		self.vehicles[agent_id].vehicle_state = veh_state
+		self.fleet_state[agent_id] = veh_state
 
 if __name__ == '__main__':
 

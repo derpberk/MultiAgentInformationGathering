@@ -1,8 +1,9 @@
 from typing import Union
 import numpy as np
 import matplotlib.pyplot as plt
-from enum import Enum
+from enum import Enum, unique
 
+@unique
 class FleetState(Enum):
 
 	WAITING_FOR_ACTION = 0
