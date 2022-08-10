@@ -74,6 +74,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 		self.max_sensed_value = None
 		self.regret = np.zeros((self.number_of_agents,))
 		self.mse = None
+		self.mse_ant = None
 		self._eval = False
 		self.uncertainty_component = 0
 		self.regret_component = 0
@@ -102,6 +103,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 		self.uncertainty_component = 0
 		self.regret_component = 0
 		self.number_of_collisions[:] = 0
+		self.mse_ant = None
 
 		# Reset the vehicles and take the first measurements #
 		self.measurements = self.fleet.reset()
@@ -145,10 +147,10 @@ class InformationGatheringEnv(MultiAgentEnv):
 		# Compute the mean and the covariance matrix #
 		mu, Sigma = self.GaussianProcess.predict(self.visitable_positions[:], return_cov=True)
 
-		if self._eval:
-			self.mse = mean_squared_error(y_true=self.ground_truth.ground_truth_field[self.visitable_positions[:, 0], self.visitable_positions[:, 1]],
-			                              y_pred=mu,
-			                              squared=True)
+		self.mse_ant = self.mse
+		self.mse = mean_squared_error(y_true=self.ground_truth.ground_truth_field[self.visitable_positions[:, 0], self.visitable_positions[:, 1]],
+		                              y_pred=mu,
+		                              squared=False)
 
 		uncertainty = np.sqrt(Sigma.diagonal())
 
@@ -175,7 +177,14 @@ class InformationGatheringEnv(MultiAgentEnv):
 		self.uncertainty_component = (self.H_ - Tr) / self.number_of_agents
 		self.regret_component = 2 - np.clip(self.regret, 0.0, 1.0)
 
-		reward = self.uncertainty_component * self.regret_component
+		if self.env_config['reward_type'] == 'uncertainty':
+			reward = self.uncertainty_component * self.regret_component
+		elif self.env_config['reward_type'] == 'regret':
+			reward = self.regret_component - 1
+		elif self.env_config['reward_type'] == 'error':
+			reward = np.array([self.mse_ant-self.mse for _ in range(self.number_of_agents)])
+		else:
+			raise NotImplementedError("Invalid reward type")
 
 		reward[collision_array] = -1.0
 
@@ -188,9 +197,9 @@ class InformationGatheringEnv(MultiAgentEnv):
 		if agent_ids is None:
 			agent_ids = self.agents_ids
 
-		states = {i: self.individual_state(i) for i in agent_ids}
+		s = {i: self.individual_state(i) for i in agent_ids}
 
-		return states
+		return s
 
 	def individual_state(self, agent_indx):
 		""" Return the state of an individual agent """
@@ -402,7 +411,7 @@ if __name__ == '__main__':
 		},
 		'movement_type': 'DIRECTIONAL',
 		'navigation_map': navigation_map,
-		'dynamic': 'OilSpillEnv',
+		'dynamic': 'Shekel',
 		'min_measurement_distance': 5,
 		'max_measurement_distance': 10,
 		'measurement_distance': 3,
@@ -410,9 +419,10 @@ if __name__ == '__main__':
 		'kernel_length_scale': 2,
 		'random_benchmark': True,
 		'observation_type': 'visual',
-		'max_collisions':10,
+		'max_collisions': 10,
 		'eval_mode': True,
 		'seed': 10,
+		'reward_type': 'error'
 	}
 
 	# Create the environment #

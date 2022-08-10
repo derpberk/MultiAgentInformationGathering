@@ -53,6 +53,7 @@ env_config = {
 	'observation_type': 'visual',
 	'max_collisions': 10,
 	'eval_mode': False,
+	'reward_type': 'uncertainty',
 }
 
 eval_env_config = env_config.copy()
@@ -75,7 +76,6 @@ class MyCallbacks(DefaultCallbacks):
 
 		episode.custom_metrics["Uncertainty"] = uncertainty
 		episode.custom_metrics["Mean_regret"] = mean_regret
-
 
 
 """ Set the configuration for the training """
