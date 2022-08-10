@@ -9,7 +9,7 @@ from ShekelGroundTruth import Shekel
 from Fleet import Fleet
 from Vehicle import FleetState
 import matplotlib.pyplot as plt
-from gym.spaces import Box
+
 
 class InformationGatheringEnv(MultiAgentEnv):
 
@@ -55,15 +55,15 @@ class InformationGatheringEnv(MultiAgentEnv):
 		""" Regression related values """
 		self.random_benchmark = env_config['random_benchmark']
 		if env_config['dynamic'] == 'OilSpillEnv':
-			self.ground_truth = OilSpillEnv(self.env_config['navigation_map'], dt=1, flow=10, gamma=1, kc=1, kw=1)
+			self.ground_truth = OilSpillEnv(self.env_config['navigation_map'], dt=1, flow=10, gamma=1, kc=1, kw=1, seed=self.env_config['seed'])
 		elif env_config['dynamic'] == 'Shekel':
-			self.ground_truth = Shekel(1 - self.env_config['navigation_map'], 1, max_number_of_peaks=4, is_bounded=True,seed=0)
+			self.ground_truth = Shekel(1 - self.env_config['navigation_map'], 1, max_number_of_peaks=4, is_bounded=True, seed=self.env_config['seed'])
 		else:
 			raise NotImplementedError("This benchmark is not implemented")
 
 		self.visitable_positions = np.column_stack(np.where(env_config['navigation_map'] == 1))
-		self.kernel = RBF(length_scale=env_config['kernel_length_scale'], length_scale_bounds='fixed')
-		self.GaussianProcess = GaussianProcessRegressor(kernel=self.kernel, alpha=0.01, optimizer=None)
+		self.kernel = RBF(length_scale=env_config['kernel_length_scale'], length_scale_bounds=(0.1, 10.0))
+		self.GaussianProcess = GaussianProcessRegressor(kernel=self.kernel, alpha=0.01, optimizer=None, n_restarts_optimizer=10)
 		self.measured_values = None
 		self.measured_locations = None
 		self.mu = None
@@ -137,11 +137,13 @@ class InformationGatheringEnv(MultiAgentEnv):
 		# Obtain the max value obtained by the fleet to compute the regret #
 		self.max_sensed_value = self.measured_values.max()
 		# Compute the regret for those agents #
-		self.regret[agents_ids] = - self.measured_values[-len(agents_ids):] + self.max_sensed_value
+		self.regret[agents_ids] = self.max_sensed_value - self.measured_values[-len(agents_ids):]
 
 		self.GaussianProcess.fit(self.measured_locations, self.measured_values)
 
-		mu, Sigma = self.GaussianProcess.predict(self.visitable_positions, return_cov=True)
+
+		# Compute the mean and the covariance matrix #
+		mu, Sigma = self.GaussianProcess.predict(self.visitable_positions[:], return_cov=True)
 
 		if self._eval:
 			self.mse = mean_squared_error(y_true=self.ground_truth.ground_truth_field[self.visitable_positions[:, 0], self.visitable_positions[:, 1]],
@@ -171,7 +173,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 		Tr = np.trace(self.Sigma)
 
 		self.uncertainty_component = (self.H_ - Tr) / self.number_of_agents
-		self.regret_component = 1 + np.clip(self.regret, 0.0, 0.9)
+		self.regret_component = 2 - np.clip(self.regret, 0.0, 1.0)
 
 		reward = self.uncertainty_component * self.regret_component
 
@@ -361,7 +363,8 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 			self.fig.canvas.draw()
 
-		plt.pause(0.05)
+		plt.pause(0.2)
+		plt.tight_layout(pad=0.5)
 		plt.show()
 
 	def get_action_mask(self, ind):
@@ -405,9 +408,11 @@ if __name__ == '__main__':
 		'measurement_distance': 3,
 		'number_of_actions': 8,
 		'kernel_length_scale': 2,
-		'random_benchmark': False,
+		'random_benchmark': True,
 		'observation_type': 'visual',
 		'max_collisions':10,
+		'eval_mode': True,
+		'seed': 10,
 	}
 
 	# Create the environment #
@@ -420,20 +425,31 @@ if __name__ == '__main__':
 
 	H = []
 	reg = []
+	i_reg = []
+	comb = []
+
+	actions = {}
+	for i in range(N):
+		mask = env.get_action_mask(i)
+		actions[i] = np.random.choice(np.arange(env.env_config['number_of_actions']), p=mask.astype(int)/np.sum(mask))
 
 	while not dones['__all__']:
-
-		actions = {i: env.action_space.sample() for i in dones.keys() if dones[i] == False and i != '__all__'}
 
 		print(""" ############################################################### """)
 		print("Action: ", actions)
 
+		states, rewards, dones, infos = env.step({i: actions[i] for i in dones.keys() if (not dones[i]) and i != '__all__'})
 
-		states, rewards, dones, infos = env.step(actions)
+		for i in range(N):
+			mask = env.get_action_mask(i)
+			if not mask[actions[i]]:
+				actions[i] = np.random.choice(np.arange(env.env_config['number_of_actions']), p=mask.astype(int)/np.sum(mask))
+
 
 		H.append(np.mean(env.uncertainty_component))
-		reg.append(np.mean(env.regret_component))
-
+		reg.append(np.mean(env.regret))
+		i_reg.append(list(env.regret))
+		comb.append(list(env.uncertainty_component * env.regret))
 
 		print("States: ", states.keys())
 		print("Rewards: ", rewards)
@@ -443,13 +459,18 @@ if __name__ == '__main__':
 
 
 	print("Finished!")
-	# plt.show(block=True)
+	plt.show(block=True)
 
-	_, ax = plt.subplots(2, 1)
+	with plt.style.context('seaborn-whitegrid'):
+		_, ax = plt.subplots(2, 1, sharex=True)
 
-	ax[0].set_title('Uncertainty')
-	ax[0].plot(H)
-	ax[1].set_title('Regret')
-	ax[1].plot(reg)
+		ax[0].set_title('Uncertainty')
+		ax[0].plot(H, 'k--', label = 'H')
+		ax[0].plot(comb)
+		ax[0].legend()
+		ax[1].set_title('Regret')
+		ax[1].plot(reg, 'k--')
+		ax[1].plot(i_reg)
+
 	plt.show(block=True)
 
