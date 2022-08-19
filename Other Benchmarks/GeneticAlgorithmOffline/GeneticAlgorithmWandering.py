@@ -15,6 +15,7 @@ from Evaluation.Utils.metrics_wrapper import MetricsDataCreator
 navigation_map = np.genfromtxt('/Users/samuel/MultiAgentInformationGathering/Environment/wesslinger_map.txt')
 N = 4
 same_evaluation_scenario = True
+
 env_config = {
     'fleet_configuration': {
         'vehicle_configuration': {

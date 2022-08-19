@@ -20,7 +20,7 @@ class Shekel(object):
         np.random.seed(self.seed)
 
         """ random map features creation """
-        self.grid = grid
+        self.grid = 1-grid
         self.resolution = resolution
         self.xy_size = np.array([self.grid.shape[1]/self.grid.shape[0]*10, 10])
         self.is_bounded = is_bounded

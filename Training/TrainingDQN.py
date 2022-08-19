@@ -4,14 +4,12 @@ from ray.rllib.agents.dqn import DQNTrainer, DEFAULT_CONFIG
 from Environment.IGEnvironments import InformationGatheringEnv
 import numpy as np
 from Model.rllib_models import FullVisualQModel
-from ray.rllib.evaluation.metrics import collect_episodes, summarize_episodes
 
 from typing import Dict, Tuple
 from ray.rllib.agents.callbacks import DefaultCallbacks
 from ray.rllib.env import BaseEnv
 from ray.rllib.evaluation import Episode, RolloutWorker
 from ray.rllib.policy import Policy
-from ray.rllib.policy.sample_batch import SampleBatch
 
 
 """ Initialize Ray """
