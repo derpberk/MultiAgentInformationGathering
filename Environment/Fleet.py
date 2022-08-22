@@ -93,10 +93,10 @@ class Fleet:
 				self.fleet_state[vehicle_id] = FleetState.FINISHED
 
 		# Take steps until at least one vehicle is not in ON_WAY state and this state is not LAST_ACTION #
-		while all(s in [FleetState.LAST_ACTION, FleetState.FINISHED, FleetState.ON_WAY] for s in self.fleet_state):
+		while all(s in [FleetState.LAST_ACTION, FleetState.FINISHED, FleetState.ON_WAY, FleetState.COLLIDED] for s in self.fleet_state):
 			self.step()
 			# If every vehicle is in LAST_ACTION state or has finished, stop stepping as the mission is over #
-			if all(s in [FleetState.FINISHED, FleetState.LAST_ACTION] for s in self.fleet_state):
+			if all(s in [FleetState.FINISHED, FleetState.LAST_ACTION, FleetState.COLLIDED] for s in self.fleet_state):
 				break
 
 		return self.fleet_state, self.measurements

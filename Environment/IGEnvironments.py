@@ -286,7 +286,9 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		for agent_id in other_agents_ids:
 			agent_position = self.fleet.vehicles[agent_id].position.astype(int)
-			other_agents_map[agent_position[0], agent_position[1]] = 1.0
+
+			if self.fleet.fleet_state[agent_id] != FleetState.FINISHED:
+				other_agents_map[agent_position[0], agent_position[1]] = 1.0
 
 		if self.observation_type == 'visual':
 
@@ -296,7 +298,11 @@ class InformationGatheringEnv(MultiAgentEnv):
 			# Second channel: self-position map
 			position_map = np.zeros_like(self.env_config['navigation_map'])
 			agent_position = self.fleet.vehicles[agent_indx].position.astype(int)
-			position_map[agent_position[0], agent_position[1]] = 1.0
+
+			if self.fleet.fleet_state[agent_indx] != FleetState.FINISHED:
+				position_map[agent_position[0], agent_position[1]] = 1.0
+			else:
+				position_map[agent_position[0], agent_position[1]] = 0.0
 
 			# Note that the mu and sigma maps are already normalized to [0, 1]
 			return np.concatenate((nav_map[np.newaxis],
@@ -370,6 +376,9 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		assert self.resetted, "You need to reset the environment first with env.reset()"
 
+		if action_dict == {}:
+			return {}, {}, {}, {}
+
 		# Compute the new target with the given actions #
 		new_targets = self.action_dict_to_targets(action_dict)
 
@@ -396,7 +405,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 		self.number_of_collisions += np.array(collision_array).astype(int)
 		# For every agent, change its state to final if its number of collisions is equal to the maximum number of collisions #
 		for agent_id in self.agents_ids:
-			if self.number_of_collisions[agent_id] >= self.max_collisions:
+			if self.number_of_collisions[agent_id] >= self.max_collisions and self.fleet.fleet_state[agent_id] != FleetState.FINISHED:
 				self.fleet.set_state(agent_id, FleetState.LAST_ACTION)
 
 		done_agents_vals = [self.fleet.fleet_state[agents_id] == FleetState.LAST_ACTION for agents_id in ready_agents_ids]
@@ -502,9 +511,9 @@ if __name__ == '__main__':
 				'dt': 0.1,
 				'navigation_map': navigation_map,
 				'target_threshold': 0.5,
-				'ground_truth': np.random.rand(50,50),
+				'ground_truth': np.random.rand(50, 50),
 				'measurement_size': np.array([0, 0]),
-				'max_travel_distance': 100,
+				'max_travel_distance': 150,
 			},
 			'number_of_vehicles': N,
 			'initial_positions': np.array([[15, 19],
@@ -512,11 +521,11 @@ if __name__ == '__main__':
 			                               [18, 19],
 			                               [15, 22]])
 		},
-		'movement_type': 'DIRECTIONAL',
+		'movement_type': 'DIRECTIONAL_DISTANCE',
 		'navigation_map': navigation_map,
 		'dynamic': 'Shekel',
 		'min_measurement_distance': 3,
-		'max_measurement_distance': 10,
+		'max_measurement_distance': 6,
 		'measurement_distance': 2,
 		'number_of_actions': 8,
 		'kernel_length_scale': 2,
@@ -539,33 +548,39 @@ if __name__ == '__main__':
 	H = []
 	reg = []
 	rew = []
+	colli = []
 
 	actions = {}
+	"""
 	for i in range(N):
 		mask = env.get_action_mask(i)
 		actions[i] = np.random.choice(np.arange(env.env_config['number_of_actions']), p=mask.astype(int)/np.sum(mask))
-
+	"""
 	while not dones['__all__']:
 
 		print(""" ############################################################### """)
 		print("Action: ", actions)
 
+		actions = {i: env.action_space.sample() for i in range(N)}
 		states, rewards, dones, infos = env.step({i: actions[i] for i in dones.keys() if (not dones[i]) and i != '__all__'})
 
+		"""
 		for i in range(N):
 			mask = env.get_action_mask(i)
 			if not mask[actions[i]]:
 				actions[i] = np.random.choice(np.arange(env.env_config['number_of_actions']), p=mask.astype(int)/np.sum(mask))
-
+		"""
 
 		H.append(list(100*env.individual_uncertainty_decrement/env.uncertainty_0))
 		reg.append(list(env.last_measurement_values))
 		rew.append(list(100*env.individual_uncertainty_decrement*(env.last_measurement_values)/env.uncertainty_0))
+		colli.append(list(env.number_of_collisions))
 
 		print("States: ", states.keys())
 		print("Rewards: ", rewards)
 		print("Dones: ", dones)
 		print("Info: ", infos)
+		print("Fleet state", env.fleet.fleet_state)
 		env.render()
 
 
@@ -573,7 +588,7 @@ if __name__ == '__main__':
 	plt.show(block=True)
 
 	with plt.style.context('seaborn-whitegrid'):
-		_, ax = plt.subplots(3, 1, sharex='all')
+		_, ax = plt.subplots(4, 1, sharex='all')
 
 		ax[0].set_ylabel('Uncertainty')
 		ax[0].plot(H, '-', linewidth=2)
@@ -581,6 +596,8 @@ if __name__ == '__main__':
 		ax[1].plot(reg, '-', linewidth=2)
 		ax[2].set_ylabel('Reward')
 		ax[2].plot(rew, '-', linewidth=2)
+		ax[3].set_ylabel('Collisions')
+		ax[3].plot(colli, '-', linewidth=2)
 
 	plt.show(block=True)
 

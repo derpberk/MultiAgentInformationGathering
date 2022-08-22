@@ -92,6 +92,7 @@ config = {
 		'custom_model': FullVisualQModel,
 		"fcnet_hiddens": [64, 64],
 		"no_final_linear": True,
+		"conv_activation": "relu",
 	},
 
 	# ===== RESOURCES ===== #

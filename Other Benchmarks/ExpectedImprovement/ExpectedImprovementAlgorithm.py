@@ -12,30 +12,36 @@ navigation_map = np.genfromtxt('../../Environment/wesslinger_map.txt')
 N = 4
 
 env_config = {
-	'fleet_configuration': {
-		'vehicle_configuration': {
-			'dt': 0.5,
-			'navigation_map': navigation_map,
-			'target_threshold': 0.5,
-			'ground_truth': np.random.rand(50,50),
-			'measurement_size': np.array([2, 2])
+		'fleet_configuration': {
+			'vehicle_configuration': {
+				'dt': 0.1,
+				'navigation_map': navigation_map,
+				'target_threshold': 0.5,
+				'ground_truth': np.random.rand(50, 50),
+				'measurement_size': np.array([0, 0]),
+				'max_travel_distance': 100,
+			},
+			'number_of_vehicles': N,
+			'initial_positions': np.array([[15, 19],
+			                               [13, 19],
+			                               [18, 19],
+			                               [15, 22]])
 		},
-		'number_of_vehicles': N,
-		'max_distance': 100,
-		'initial_positions': np.array([[15, 19],
-		                               [13, 19],
-		                               [18, 19],
-		                               [15, 22]])
-	},
-	'movement_type': 'DIRECTIONAL',
-	'navigation_map': navigation_map,
-	'dynamic': 'Shekel',
-	'min_measurement_distance': 5,
-	'max_measurement_distance': 10,
-	'measurement_distance': 3,
-	'number_of_actions': 8,
-	'kernel_length_scale': 2
-}
+		'movement_type': 'DIRECTIONAL',
+		'navigation_map': navigation_map,
+		'dynamic': 'Shekel',
+		'min_measurement_distance': 3,
+		'max_measurement_distance': 6,
+		'measurement_distance': 2,
+		'number_of_actions': 8,
+		'kernel_length_scale': 2,
+		'random_benchmark': True,
+		'observation_type': 'visual',
+		'max_collisions': 10,
+		'eval_mode': True,
+		'seed': 10,
+		'reward_type': 'improvement',
+	}
 
 # Create the environment #
 env = InformationGatheringEnv(env_config=env_config)
@@ -59,9 +65,7 @@ def predict_best_action(ei_map):
 		# Compute the position of the highest value of the ei_map that is at a distance env_config['measurement_distance'] form the vehicle current
 		# position #
 
-
-
-		look_ahead_distance = env_config['measurement_distance']*2
+		look_ahead_distance = env_config['measurement_distance']*3
 		look_ahead_mask = np.zeros_like(ei_map)
 
 		px, py = vehicle.position.astype(int)
@@ -77,8 +81,6 @@ def predict_best_action(ei_map):
 		ei_index = np.argmax(ei_map * look_ahead_mask)
 
 		ei_position = np.unravel_index(ei_index, ei_map.shape)
-
-		plt.plot(ei_position[1], ei_position[0], 'ro')
 
 		# Compute the angle to the highest value of the ei_map #
 		angle = np.arctan2(ei_position[1]-vehicle.position[1], ei_position[0]-vehicle.position[0])
@@ -120,7 +122,7 @@ for run in range(30):
 
 		# ---- Optimization routine ---- #
 		# 1. Compute the Expected Improvement map #
-		expected_improvement_values = gaussian_ei(env.visitable_positions, y_opt=0, model=env.GaussianProcess, xi=1)
+		expected_improvement_values = gaussian_ei(env.visitable_positions, model=env.GaussianProcess, xi=0.1)
 		expected_improvement_map[env.visitable_positions[:,0], env.visitable_positions[:,1]] = expected_improvement_values
 		# 2. Compute the actions
 		dict_actions = predict_best_action(expected_improvement_map)
@@ -140,7 +142,7 @@ for run in range(30):
 
 		t += 1
 
-		# env.render()
+		env.render()
 
 
 
