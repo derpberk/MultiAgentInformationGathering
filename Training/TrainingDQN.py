@@ -26,11 +26,11 @@ same_evaluation_scenario = False
 env_config = {
 	'fleet_configuration': {
 		'vehicle_configuration': {
-			'dt': 0.5,
+			'dt': 0.1,
 			'navigation_map': navigation_map,
 			'target_threshold': 0.5,
 			'ground_truth': np.random.rand(50, 50),
-			'measurement_size': np.array([2, 2]),
+			'measurement_size': np.array([0, 0]),
 			'max_travel_distance': 100,
 		},
 		'number_of_vehicles': N,
@@ -41,39 +41,22 @@ env_config = {
 	},
 	'movement_type': 'DIRECTIONAL',
 	'navigation_map': navigation_map,
-	'dynamic': 'OilSpillEnv',
-	'min_measurement_distance': 5,
-	'max_measurement_distance': 10,
-	'measurement_distance': 3,
+	'dynamic': 'Shekel',
+	'min_measurement_distance': 3,
+	'max_measurement_distance': 6,
+	'measurement_distance': 2,
 	'number_of_actions': 8,
 	'kernel_length_scale': 2,
-	'random_benchmark': False,
+	'random_benchmark': True,
 	'observation_type': 'visual',
 	'max_collisions': 10,
-	'eval_mode': False,
-	'reward_type': 'uncertainty',
+	'eval_mode': True,
+	'seed': 10,
+	'reward_type': 'improvement',
 }
 
 eval_env_config = env_config.copy()
 eval_env_config['eval_mode'] = True
-
-class MyCallbacks(DefaultCallbacks):
-
-	def on_episode_end(
-			self,
-			*,
-			worker: RolloutWorker,
-			base_env: BaseEnv,
-			policies: Dict[str, Policy],
-			episode: Episode,
-			**kwargs
-	):
-
-		uncertainty = base_env.envs[episode.env_id].uncertainty
-		mean_regret = np.mean(base_env.envs[episode.env_id].regret)
-
-		episode.custom_metrics["Uncertainty"] = uncertainty
-		episode.custom_metrics["Mean_regret"] = mean_regret
 
 
 """ Set the configuration for the training """
@@ -100,18 +83,15 @@ config = {
 	"num_workers": 2,
 	# Number of workers for training
 	"evaluation_num_workers": 1,
-	"num_gpus": 0,
+	"num_gpus": 1,
 	"num_cpus_per_worker": 1,
 	"num_envs_per_worker": 1,
-
-	"callbacks": MyCallbacks,
-
 	# ===== ROLLOUT SAMPLING ===== #
 	# Size of the batches for training.
 	"train_batch_size": 64,
 	"rollout_fragment_length": 4,
 	# Update the training every training_intensity timesteps. #
-	"training_intensity": None,  # Relation between timesteps trained vs trainsteps sampled
+	"training_intensity": 100,  # Relation between timesteps trained vs trainsteps sampled
 
 	# ===== EXPLORATION ===== #
 	"explore": True,
@@ -122,7 +102,7 @@ config = {
 		# Parameters for the Exploration class' constructor:
 		"initial_epsilon": 1.0,
 		"final_epsilon": 0.05,
-		"epsilon_timesteps": 1000000  # Timesteps over which to anneal epsilon.
+		"epsilon_timesteps": 1500000  # Timesteps over which to anneal epsilon.
 
 	},
 
@@ -147,7 +127,7 @@ config = {
 	},
 
 	# Upate
-	"target_network_update_freq": 20000,
+	"target_network_update_freq": 30000,
 	# === Model ===
 	# Number of atoms for representing the distribution of return. When
 	# this is greater than 1, distributional Q-learning is used.
@@ -190,7 +170,7 @@ config = {
 		"explore": False,
 	},
 
-	"evaluation_interval": 10,
+	"evaluation_interval": 2000,
 	"custom_eval_function": None,
 	"metrics_num_episodes_for_smoothing": 100,  # Number of episodes to smooth over for computing metrics
 
@@ -198,7 +178,7 @@ config = {
 
 """ Stop criterion """
 stop_criterion = {
-	"episodes_total": 20_000,
+	"episodes_total": 50_000,
 }
 
 # Create our RLlib Trainer.
@@ -207,4 +187,4 @@ tune.run(DQNTrainer,
          stop=stop_criterion,
          local_dir='./runs',
          checkpoint_at_end=True,
-         checkpoint_freq=1,)
+         checkpoint_freq=100,)

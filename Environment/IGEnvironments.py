@@ -521,7 +521,7 @@ if __name__ == '__main__':
 			                               [18, 19],
 			                               [15, 22]])
 		},
-		'movement_type': 'DIRECTIONAL_DISTANCE',
+		'movement_type': 'DIRECTIONAL',
 		'navigation_map': navigation_map,
 		'dynamic': 'Shekel',
 		'min_measurement_distance': 3,
@@ -534,7 +534,7 @@ if __name__ == '__main__':
 		'max_collisions': 10,
 		'eval_mode': True,
 		'seed': 10,
-		'reward_type': 'uncertainty',
+		'reward_type': 'improvement',
 	}
 
 	# Create the environment #
@@ -551,11 +551,10 @@ if __name__ == '__main__':
 	colli = []
 
 	actions = {}
-	"""
+
 	for i in range(N):
 		mask = env.get_action_mask(i)
-		actions[i] = np.random.choice(np.arange(env.env_config['number_of_actions']), p=mask.astype(int)/np.sum(mask))
-	"""
+
 	while not dones['__all__']:
 
 		print(""" ############################################################### """)
@@ -564,12 +563,12 @@ if __name__ == '__main__':
 		actions = {i: env.action_space.sample() for i in range(N)}
 		states, rewards, dones, infos = env.step({i: actions[i] for i in dones.keys() if (not dones[i]) and i != '__all__'})
 
-		"""
+
 		for i in range(N):
 			mask = env.get_action_mask(i)
 			if not mask[actions[i]]:
 				actions[i] = np.random.choice(np.arange(env.env_config['number_of_actions']), p=mask.astype(int)/np.sum(mask))
-		"""
+
 
 		H.append(list(100*env.individual_uncertainty_decrement/env.uncertainty_0))
 		reg.append(list(env.last_measurement_values))
@@ -600,4 +599,6 @@ if __name__ == '__main__':
 		ax[3].plot(colli, '-', linewidth=2)
 
 	plt.show(block=True)
+
+	print(np.sum(rew))
 
