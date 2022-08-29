@@ -34,6 +34,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 		# Define the observation space and the action space #
 		self.observation_type = env_config['observation_type']
 
+		number_of_channels = 4 if self.env_config['reward_type'] == 'uncertainty' else 5
 		if self.observation_type == 'visual':
 			# The visual observation space is defined as 5 images:
 			# - The navigation map
@@ -41,10 +42,10 @@ class InformationGatheringEnv(MultiAgentEnv):
 			# - The other vehicles positions on the map
 			# - The mu of the model
 			# - The uncertainty of the model
-			self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(5, *env_config['navigation_map'].shape))
+			self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(number_of_channels, *env_config['navigation_map'].shape))
 		elif self.observation_type == 'hybrid':
 			# The hybrid state is its position [x,y] and 3 images [fleet positions, mean-model, uncertainty] #
-			self.observation_space = gym.spaces.Dict({'visual_state': gym.spaces.Box(low=-1.0, high=1.0, shape=(3, *env_config['navigation_map'].shape)),
+			self.observation_space = gym.spaces.Dict({'visual_state': gym.spaces.Box(low=-1.0, high=1.0, shape=(number_of_channels-1, *env_config['navigation_map'].shape)),
 			                                          'odometry': gym.spaces.Box(low=-1.0, high=1.0, shape=(2,))})
 		else:
 			raise NotImplementedError('This observation type is not defined. Pleas choose between: visual / hybrid')
@@ -305,18 +306,30 @@ class InformationGatheringEnv(MultiAgentEnv):
 				position_map[agent_position[0], agent_position[1]] = 0.0
 
 			# Note that the mu and sigma maps are already normalized to [0, 1]
-			return np.concatenate((nav_map[np.newaxis],
-			                       position_map[np.newaxis],
-			                       other_agents_map[np.newaxis],
-			                       np.clip(self.mu[np.newaxis], a_min=-1.0, a_max=1.0),
-			                       np.clip(self.uncertainty[np.newaxis], a_min=-1.0, a_max=1.0)))
+			if self.env_config['reward_type'] == 'uncertainty':
+				return np.concatenate((nav_map[np.newaxis],
+				                       position_map[np.newaxis],
+				                       other_agents_map[np.newaxis],
+				                       np.clip(self.uncertainty[np.newaxis], a_min=-1.0, a_max=1.0)))
+			else:
+				return np.concatenate((nav_map[np.newaxis],
+				                       position_map[np.newaxis],
+				                       other_agents_map[np.newaxis],
+				                       np.clip(self.mu[np.newaxis], a_min=-1.0, a_max=1.0),
+				                       np.clip(self.uncertainty[np.newaxis], a_min=-1.0, a_max=1.0)))
 
 		elif self.observation_type == 'hybrid':
 
-			return {'visual_state': np.concatenate((self.mu[np.newaxis],
-			                                        self.uncertainty[np.newaxis],
-			                                        other_agents_map[np.newaxis])),
-			        'odometry': self.fleet.vehicles[agent_indx].position/self.env_config['navigation_map'].shape}
+			if self.env_config['reward_type'] == 'uncertainty':
+
+				return {'visual_state': np.concatenate((np.clip(self.uncertainty[np.newaxis], a_min=-1.0, a_max=1.0),
+				                                        other_agents_map[np.newaxis])),
+				        'odometry': self.fleet.vehicles[agent_indx].position/self.env_config['navigation_map'].shape}
+			else:
+				return {'visual_state': np.concatenate((np.clip(self.mu[np.newaxis], a_min=-1.0, a_max=1.0),
+				                                        np.clip(self.uncertainty[np.newaxis], a_min=-1.0, a_max=1.0),
+				                                        other_agents_map[np.newaxis])),
+				        'odometry': self.fleet.vehicles[agent_indx].position / self.env_config['navigation_map'].shape}
 
 	def update_vehicles_ground_truths(self):
 		""" Setter to update the ground truth of the vehicles. """
