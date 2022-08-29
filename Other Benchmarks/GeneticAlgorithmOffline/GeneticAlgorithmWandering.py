@@ -10,6 +10,7 @@ from StochasticEASimple import eaSimpleWithReevaluation, cxTwoPointCopy
 from Environment.IGEnvironments import InformationGatheringEnv
 from Evaluation.Utils.metrics_wrapper import MetricsDataCreator
 
+
 """ Compute Ground Truth """
 navigation_map = np.genfromtxt('/Users/samuel/MultiAgentInformationGathering/Environment/wesslinger_map.txt')
 N = 4
@@ -23,7 +24,7 @@ env_config = {
 			'target_threshold': 0.5,
 			'ground_truth': np.random.rand(50, 50),
 			'measurement_size': np.array([0, 0]),
-			'max_travel_distance': 150,
+			'max_travel_distance': 100,
 		},
 		'number_of_vehicles': N,
 		'initial_positions': np.array([[15, 19],
@@ -36,7 +37,7 @@ env_config = {
 	'dynamic': 'Shekel',
 	'min_measurement_distance': 3,
 	'max_measurement_distance': 6,
-	'measurement_distance': 2,
+	'measurement_distance': 3,
 	'number_of_actions': 8,
 	'kernel_length_scale': 2,
 	'random_benchmark': True,
@@ -47,9 +48,10 @@ env_config = {
 	'reward_type': 'improvement',
 }
 
-N_EVAL = 1
+N_EVAL = 10
 NUM_OF_INDIVIDUALS = 20
 NUM_OF_GENERATIONS = 10
+INDIVIDUAL_MAX_SIZE = np.ceil(env_config['fleet_configuration']['vehicle_configuration']['max_travel_distance']/env_config['measurement_distance']) + 10
 
 # Create the environment #
 env = InformationGatheringEnv(env_config=env_config)
@@ -68,11 +70,16 @@ paths = MetricsDataCreator(metrics_names=['vehicle', 'x', 'y'],
 def createValidIndividual(creator):
 	""" Create a valid individual. """
 
-	env.reset()
+	states = env.reset()
 	done_flag = False
-	individual = []
+	done = {i:False for i in range(N)}
+	done['__all__'] = False
+
+	action_array = np.zeros((int(INDIVIDUAL_MAX_SIZE), N))
+	t = 0
 
 	while not done_flag:
+
 		actions = []
 
 		for veh_id in range(N):
@@ -81,13 +88,16 @@ def createValidIndividual(creator):
 			actions.append(action)
 
 		actions_dict = {i: a for i, a in enumerate(actions)}
-		individual.extend(actions)
-		_, _, done, _ = env.step(actions_dict)
+
+		action_array[t, list(actions_dict.keys())] = np.asarray(list(actions_dict.values()))
+
+		states, _, done, _ = env.step({i: actions_dict[i] for i in done.keys() if (not done[i]) and i != '__all__'})
 
 		done_flag = np.all(list(done.values()))
 
-	return creator(individual)
+		t+=1
 
+	return creator(action_array.reshape(1, -1).astype(int)[0].tolist())
 
 # --- Create the Genetic Algorihtm Strategies --- #
 creator.create("FitnessMax", base.Fitness, weights=(1.0,))  # This means we want to maximize
@@ -100,24 +110,31 @@ toolbox.register("individual", createValidIndividual, creator.Individual)
 toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 
 
-def evalEnv(ind, local_env):
+def evalEnv(list_ind, local_env):
 	""" Evaluate the environment N_EVAL times. The individual is split into N agents actions
     and each agent is evaluated on the environment. """
 
-	individual = np.array(ind)
+	individual = np.array(list_ind)
 	individual = individual.reshape(-1, N)  # Reshape the individual to be N agents x 101 steps
 
 	for _ in range(N_EVAL):
 		# Evaluate the individual N_EVAL times #
 		local_env.reset()
+		dones = {i: False for i in range(N)}
+		dones['__all__'] = False
 		R = []
 
-		for t in range(len(individual)):
+		t = 0
+		while not dones['__all__']:
 			# Take the actions at instant t and create a dictionary of actions #
-			actions = {i: a for i, a in enumerate(individual[t, :])}
-			_, rewards, dones, _ = local_env.step(actions)
-
+			actions_dict = {i: a for i, a in enumerate(individual[t, :])}
+			states, rewards, dones, _ = local_env.step({i: actions_dict[i] for i in dones.keys() if (not dones[i]) and i != '__all__'})
 			R.append(np.sum(list(rewards.values())))
+			t+=1
+
+			if any(local_env.number_of_collisions > 0.0):
+				R = 0
+				break
 
 	return np.mean(R),
 
@@ -132,7 +149,7 @@ toolbox.register("select", tools.selTournament, tournsize=5)
 # toolbox.register("map", pool.map)
 
 
-def optimize(local_env, save=False):
+def optimize(local_env):
 	random.seed(64)
 
 	pop = toolbox.population(n=NUM_OF_INDIVIDUALS)
@@ -151,23 +168,7 @@ def optimize(local_env, save=False):
 	stats.register("max", np.max)
 
 	# Algorithm - Simple Evolutionary Algorithm #
-	eaSimpleWithReevaluation(pop, toolbox, cxpb=0.7, mutpb=0.3, ngen=NUM_OF_GENERATIONS, stats=stats, halloffame=hof)
-
-	if save:
-
-		with open(f"ga_simple_optimization_result_{datetime.datetime.now().strftime('%Y_%m_%d-%H:%M_%S')}.txt", "w") as solution_file:
-
-			solution_file.write("Optimization result for the GA\n")
-			solution_file.write("---------------------------------\n")
-			solution_file.write("---------------------------------\n")
-			solution_file.write("--------- Best Individuals -----------\n")
-
-			for idx, individual in enumerate(hof):
-				str_data = ','.join(str(i) for i in individual)
-				solution_file.write(f"Individual {idx}: {str_data}\n")
-				solution_file.write(f"Fitness: {individual.fitness.values}\n")
-
-			solution_file.close()
+	eaSimpleWithReevaluation(pop, toolbox, cxpb=0.5, mutpb=0.5, ngen=NUM_OF_GENERATIONS, stats=stats, halloffame=hof)
 
 	return hof[0]
 
@@ -181,7 +182,7 @@ if __name__ == "__main__":
 	env.reset()
 
 	""" OPTIMIZE THE SCENARIO """
-	best = np.asarray(optimize(env, save=True))
+	best = np.asarray(optimize(env))
 	individual = np.asarray(best).reshape(-1, N)
 
 	env.eval()
@@ -190,18 +191,22 @@ if __name__ == "__main__":
 		# Evaluate the individual N_EVAL times #
 		env.reset()
 		R = 0
+		dones = {i: False for i in range(N)}
+		dones['__all__'] = False
+		t = 0
 
-		for t in range(len(individual)):
+		while not dones['__all__']:
 			# Take the actions at instant t and create a dictionary of actions #
-			actions = {i: a for i, a in enumerate(individual[t, :])}
-			_, rewards, dones, _ = env.step(actions)
-
+			actions_dict = {i: a for i, a in enumerate(individual[t, :])}
+			states, rewards, dones, _ = env.step({i: actions_dict[i] for i in dones.keys() if (not dones[i]) and i != '__all__'})
 			R += np.sum(list(rewards.values()))
+			t += 1
 
 			# Register positions and metrics #
 			metrics.register_step(run_num=run, step=t, metrics=[R, env.mse])
 			for veh_id, veh in enumerate(env.fleet.vehicles):
 				paths.register_step(run_num=run, step=t, metrics=[veh_id, veh.position[0], veh.position[1]])
+
 
 metrics.register_experiment()
 paths.register_experiment()
