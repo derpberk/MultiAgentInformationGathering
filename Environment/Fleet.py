@@ -23,10 +23,11 @@ class Fleet:
 
 		# Fleet state and measurements #
 		# NOTE: The fleet state is a vector of the states of the vehicles. It is conformed to define if the vehicle is moving, has collided, or
-		# finished the mission. This atribute is conformed in the fleet object using each vehicle information (individual conditions) or fleet info
-		# (colective conditions) such as in between individual collitions #
+		# finished the mission. This attribute is conformed in the fleet object using each vehicle information (individual conditions) or fleet info
+		# (collective conditions) such as in between individual collisions #
 		self.fleet_state = [None for _ in range(self.number_of_vehicles)]
 		self.measurements = [None for _ in range(self.number_of_vehicles)]
+		self.time = None
 
 	def reset(self):
 		""" Reset the fleet position and measurements.
@@ -36,10 +37,13 @@ class Fleet:
 		"""
 
 		self.measurements = [vehicle.reset_vehicle() for vehicle in self.vehicles]
+		for meas in self.measurements:
+			meas['time'] = 0
+
 		self.fleet_state = [vehicle.vehicle_state for vehicle in self.vehicles]
+		self.time = 0
 
 		return self.measurements
-
 
 	def set_target_position(self, agent_id, target_position):
 		""" Set a new position target for an agent if it is not finished """
@@ -56,6 +60,12 @@ class Fleet:
 			# Only update the vehicle if it is not finished and not collided #
 			if self.fleet_state[vehicle_id] not in [FleetState.FINISHED, FleetState.COLLIDED]:
 				self.fleet_state[vehicle_id], self.measurements[vehicle_id] = vehicle.step()
+
+			if self.measurements[vehicle_id] is not None:
+				self.measurements[vehicle_id]['time'] = self.time
+
+		# Update the time #
+		self.time += self.fleet_configuration['vehicle_configuration']['dt']
 
 		return self.fleet_state, self.measurements
 
@@ -85,7 +95,7 @@ class Fleet:
 
 		"""
 
-		# Iterare for every vehicle #
+		# Iterate for every vehicle #
 		for vehicle_id, vehicle in enumerate(self.vehicles):
 			# IF the vehicle is in LAST_ACTION state, set the state to FINISHED #
 			if vehicle.vehicle_state == FleetState.LAST_ACTION:
@@ -119,6 +129,3 @@ class Fleet:
 
 		self.vehicles[agent_id].vehicle_state = veh_state
 		self.fleet_state[agent_id] = veh_state
-
-
-

@@ -86,13 +86,19 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		# ---- Parameters of the model (Gaussian Process) ---- #
 		# Kernel for model-conditioning #
-		self.kernel = RBF(length_scale=env_config['kernel_length_scale'], length_scale_bounds=(0.1, 10.0))
+		if env_config['temporal']:
+			self.kernel = RBF(length_scale=env_config['kernel_length_scale'], length_scale_bounds=env_config['kernel_length_scale_bounds'])
+		else:
+			self.kernel = RBF(length_scale=env_config['kernel_length_scale'], length_scale_bounds=(0.1, 10.0))
+
 		# The Gaussian Process #
 		self.GaussianProcess = GaussianProcessRegressor(kernel=self.kernel, alpha=0.01, optimizer=None, n_restarts_optimizer=10)
 		# The list of measured values (y in GP)
 		self.measured_values = None
 		# The list of measured positions (x in GP)
 		self.measured_locations = None
+		# For anisotropic temporal modelling
+		self.measurements_time = None
 
 		# The surrogate model #
 		self.mu = None
@@ -199,18 +205,32 @@ class InformationGatheringEnv(MultiAgentEnv):
 				self.measured_locations = np.asarray([new_measurements[measurement_id]['position']])
 				# We compute the mean of the measurement-image #
 				self.measured_values = np.asarray([np.nanmean(new_measurements[measurement_id]['data'])])
+				# If the mission is of a temporal-patrolling kind append also the time of the sample #
+				if self.env_config['temporal']:
+					self.measurements_time = np.atleast_2d(np.asarray([new_measurements[measurement_id]['time']]))
+
 			else:
 				self.measured_locations = np.vstack((self.measured_locations, np.asarray([new_measurements[measurement_id]['position']])))
 				self.measured_values = np.hstack((self.measured_values, np.asarray([np.nanmean(new_measurements[measurement_id]['data'])])))
+				# If the mission is of a temporal-patrolling kind append also the time of the sample #
+				if self.env_config['temporal']:
+					self.measurements_time = np.vstack((self.measurements_time, np.asarray([new_measurements[measurement_id]['time']])))
 
 			# Store this last measured value #
 			self.last_measurement_values[agent_id] = self.measured_values[-1]
 
 			# Fit the gaussian process #
-			self.GaussianProcess.fit(self.measured_locations, self.measured_values)
-
-			# Compute the mean and the std values for all the visitable positions #
-			mu_array, sigma_array = self.GaussianProcess.predict(self.visitable_positions[:], return_std=True)
+			if self.env_config['temporal']:
+				self.GaussianProcess.fit(np.hstack((self.measured_locations, self.measurements_time)), self.measured_values)
+				# Compute the mean and the std values for all the visitable positions #
+				mu_array, sigma_array = self.GaussianProcess.predict(np.hstack((self.visitable_positions[:],
+				                                                               np.full((len(self.visitable_positions), 1),
+				                                                                       np.max(self.measurements_time)))),
+				                                                     return_std=True)
+			else:
+				self.GaussianProcess.fit(self.measured_locations, self.measured_values)
+				# Compute the mean and the std values for all the visitable positions #
+				mu_array, sigma_array = self.GaussianProcess.predict(self.visitable_positions[:], return_std=True)
 
 			# Compute the new mean error #
 			self.mse = np.sum(np.abs(self.ground_truth.ground_truth_field[self.visitable_positions[:, 0], self.visitable_positions[:, 1]] - mu_array))
@@ -601,13 +621,15 @@ if __name__ == '__main__':
 		'max_measurement_distance': 6,
 		'measurement_distance': 3,
 		'number_of_actions': 8,
-		'kernel_length_scale': 10,
+		'kernel_length_scale': (3, 3, 50),
+		'kernel_length_scale_bounds': ((0.1, 10), (0.1, 10), (0.001, 100)),
 		'random_benchmark': True,
 		'observation_type': 'visual',
 		'max_collisions': 10,
 		'eval_mode': True,
 		'seed': 10,
 		'reward_type': 'improvement',
+		'temporal': True,
 	}
 
 	# Create the environment #
@@ -646,11 +668,13 @@ if __name__ == '__main__':
 		rew.append(list(100 * env.individual_uncertainty_decrement * (env.last_measurement_values) / env.uncertainty_0))
 		colli.append(list(env.number_of_collisions))
 
+
 		print("States: ", states.keys())
 		print("Rewards: ", rewards)
 		print("Dones: ", dones)
 		print("Info: ", infos)
 		print("Fleet state", env.fleet.fleet_state)
+
 		env.render()
 
 	print("Finished!")
