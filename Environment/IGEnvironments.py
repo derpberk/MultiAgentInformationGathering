@@ -9,10 +9,12 @@ from Fleet import Fleet
 from Vehicle import FleetState
 from typing import Union
 from random import shuffle
+from skimage.feature import peak_local_max
 
 import matplotlib.pyplot as plt
 
 
+# noinspection GrazieInspection
 class InformationGatheringEnv(MultiAgentEnv):
 
 	def __init__(self, env_config: dict):
@@ -45,8 +47,9 @@ class InformationGatheringEnv(MultiAgentEnv):
 			self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(number_of_channels, *env_config['navigation_map'].shape))
 		elif self.observation_type == 'hybrid':
 			# The hybrid state is its position [x,y] and 3 images [fleet positions, mean-model, uncertainty] #
-			self.observation_space = gym.spaces.Dict({'visual_state': gym.spaces.Box(low=-1.0, high=1.0, shape=(number_of_channels-1, *env_config['navigation_map'].shape)),
-			                                          'odometry': gym.spaces.Box(low=-1.0, high=1.0, shape=(2,))})
+			self.observation_space = gym.spaces.Dict(
+				{'visual_state': gym.spaces.Box(low=-1.0, high=1.0, shape=(number_of_channels - 1, *env_config['navigation_map'].shape)),
+				 'odometry': gym.spaces.Box(low=-1.0, high=1.0, shape=(2,))})
 		else:
 			raise NotImplementedError('This observation type is not defined. Pleas choose between: visual / hybrid')
 
@@ -101,9 +104,11 @@ class InformationGatheringEnv(MultiAgentEnv):
 		# The contribution of every agent to the uncertainty decrement (to compute the reward)#
 		self.intermediate_uncertainty_values = np.ones(shape=(len(self.visitable_positions),))
 		self.individual_uncertainty_decrement = np.array([0.0 for _ in range(self.number_of_agents)])
+		self.individual_mse = np.array([0.0 for _ in range(self.number_of_agents)])
 		# The error of the model #
 		self.mse = None
 		self.mse_ant = None
+		self.acc_reward = 0
 
 		# For the collision computation #
 		self.number_of_collisions = np.zeros(shape=(self.number_of_agents,))
@@ -137,7 +142,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 		self.mu = np.zeros_like(self.env_config['navigation_map'])
 		self.uncertainty = np.zeros_like(self.env_config['navigation_map'])
 		self.number_of_collisions[:] = 0
-		self.mse_ant = None
+		self.mse_ant = 0.0
 
 		# Reset the fleet and take the first measurements #
 		self.measurements = self.fleet.reset()
@@ -146,7 +151,9 @@ class InformationGatheringEnv(MultiAgentEnv):
 		self.last_measurement_values = np.array([0.0 for _ in range(self.number_of_agents)])
 		self.intermediate_uncertainty_values = np.ones(shape=(len(self.visitable_positions),))
 		self.individual_uncertainty_decrement = np.array([0.0 for _ in range(self.number_of_agents)])
+		self.individual_mse = np.zeros(shape=(self.number_of_agents,))
 		self.mu, self.uncertainty = self.update_model(new_measurements=self.measurements)
+		self.acc_reward = 0
 
 		self.uncertainty_0 = self.uncertainty.sum()
 
@@ -207,6 +214,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 			# Compute the new mean error #
 			self.mse = np.sum(np.abs(self.ground_truth.ground_truth_field[self.visitable_positions[:, 0], self.visitable_positions[:, 1]] - mu_array))
+			self.individual_mse[agent_id] = self.mse - self.mse_ant
 			self.mse_ant = self.mse
 
 			# Save the intermediate uncertainty maps for uncertainty credit assignment #
@@ -241,11 +249,11 @@ class InformationGatheringEnv(MultiAgentEnv):
 			agents_ids = self.agents_ids
 
 		if self.env_config['reward_type'] == 'uncertainty':
-			reward = 100*self.individual_uncertainty_decrement / self.uncertainty_0
+			reward = 100 * self.individual_uncertainty_decrement / self.uncertainty_0
 		elif self.env_config['reward_type'] == 'improvement':
 			reward = 100 * self.individual_uncertainty_decrement * self.last_measurement_values / self.uncertainty_0
 		elif self.env_config['reward_type'] == 'error':
-			reward = np.array([self.mse_ant - self.mse for _ in range(self.number_of_agents)])
+			reward = self.individual_mse.copy()
 		else:
 			raise NotImplementedError("Invalid reward type")
 
@@ -324,7 +332,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 				return {'visual_state': np.concatenate((np.clip(self.uncertainty[np.newaxis], a_min=-1.0, a_max=1.0),
 				                                        other_agents_map[np.newaxis])),
-				        'odometry': self.fleet.vehicles[agent_indx].position/self.env_config['navigation_map'].shape}
+				        'odometry': self.fleet.vehicles[agent_indx].position / self.env_config['navigation_map'].shape}
 			else:
 				return {'visual_state': np.concatenate((np.clip(self.mu[np.newaxis], a_min=-1.0, a_max=1.0),
 				                                        np.clip(self.uncertainty[np.newaxis], a_min=-1.0, a_max=1.0),
@@ -362,7 +370,8 @@ class InformationGatheringEnv(MultiAgentEnv):
 			angles = np.pi * actions[:, 0]
 			distances = self.linear_min_max(self.env_config['min_measurement_distance'], self.env_config['max_measurement_distance'], -1, 1,
 			                                actions[:, 1])
-			target_positions = self.fleet.get_positions()[target_agents] + distances.reshape(-1,1) * np.column_stack((np.cos(angles), np.sin(angles)))
+			target_positions = self.fleet.get_positions()[target_agents] + distances.reshape(-1, 1) * np.column_stack(
+				(np.cos(angles), np.sin(angles)))
 		else:
 			raise NotImplementedError("Invalid movement type")
 
@@ -372,6 +381,49 @@ class InformationGatheringEnv(MultiAgentEnv):
 	def linear_min_max(y_min, y_max, x_min, x_max, x):
 		""" Transform the input x into a line """
 		return (y_max - y_min) / (x_max - x_min) * x + y_min
+
+	def compute_metrics(self, mission_type='MaximaSearch'):
+		""" Here we compute every metric related to the metrics of the mission.
+		Depending on the mode, one kind of metrics are calculated.
+
+		:param mission_type: The type of mission we are performing. It will define what metrics are significant to the mission.
+
+		:return: A dictionary with the metrics.
+		"""
+
+		metric_dict = {'error': self.mse,
+		               'accumulated_reward': self.acc_reward,
+		               'uncertainty': self.uncertainty[self.visitable_positions[:, 0], self.visitable_positions[:, 1]].mean(),
+		               'instant_regret': 1.0 - self.last_measurement_values.mean()
+		               }
+
+		if mission_type == 'MaximaSearch':
+			# Get the maxima from the ground truth field #
+			real_maxima_locs = peak_local_max(self.ground_truth.ground_truth_field,
+			                                  min_distance=2,
+			                                  threshold_abs=0.1,
+			                                  num_peaks=self.ground_truth.number_of_peaks)
+
+			maxima_values = np.array([self.ground_truth.ground_truth_field[pos[0], pos[1]] for pos in real_maxima_locs])
+
+			# The same for our model
+			estimated_maxima_locs = np.zeros_like(real_maxima_locs)
+			new_estimated_maxima_locs = peak_local_max(self.mu,
+			                                       min_distance=2,
+			                                       threshold_abs=0.1,
+			                                       num_peaks=len(maxima_values))
+
+			estimated_maxima_locs[0:len(new_estimated_maxima_locs)] = new_estimated_maxima_locs
+
+			estimated_values = np.array([self.ground_truth.ground_truth_field[pos[0], pos[1]] for pos in estimated_maxima_locs])
+
+			metric_dict['peak_location_error'] = np.sqrt(((estimated_maxima_locs - real_maxima_locs) ** 2).sum(1)).mean()
+			metric_dict['peak_value_error'] = np.sqrt(((maxima_values - estimated_values) ** 2)).mean()
+
+		else:
+			raise NotImplementedError("This is not a valid mission type:")
+
+		return metric_dict
 
 	def step(self, action_dict: dict) -> (dict, dict, dict, dict):
 		""" Process the actions. The action is processed for those waiting vehicles. The fleet is updated until one/all vehicles are ready.
@@ -410,7 +462,8 @@ class InformationGatheringEnv(MultiAgentEnv):
 			_, new_measurements = self.fleet.update_asyncronously()
 
 		# Retrieve the ids of the agents that must return a state and a reward #
-		ready_agents_ids = [i for i, veh_state in enumerate(self.fleet.fleet_state) if veh_state in [FleetState.WAITING_FOR_ACTION, FleetState.COLLIDED, FleetState.LAST_ACTION]]
+		ready_agents_ids = [i for i, veh_state in enumerate(self.fleet.fleet_state) if
+		                    veh_state in [FleetState.WAITING_FOR_ACTION, FleetState.COLLIDED, FleetState.LAST_ACTION]]
 
 		# Compute those agents that collided and add 1 collision to their counter #
 		collision_array = [s == FleetState.COLLIDED for s in self.fleet.fleet_state]
@@ -443,6 +496,11 @@ class InformationGatheringEnv(MultiAgentEnv):
 		self.dones = {i: val for i, val in zip(ready_agents_ids, done_agents_vals)}
 		self.dones['__all__'] = all([veh_state in [FleetState.LAST_ACTION, FleetState.FINISHED] for veh_state in self.fleet.fleet_state])
 
+		# Accumulate the reward #
+		self.acc_reward += np.asarray([val for val in self.rewards.values()]).sum()
+
+		# Compute the metrics (if we are in eval mode) #
+		self.infos['metrics'] = self.compute_metrics() if self._eval else {}
 
 		return self.states, self.rewards, self.dones, self.infos
 
@@ -462,7 +520,8 @@ class InformationGatheringEnv(MultiAgentEnv):
 			if self.observation_type == 'visual':
 				self.s1 = self.axs[1].imshow(np.sum([self.individual_state(i)[1] for i in range(self.number_of_agents)], axis=0), cmap='gray')
 			elif self.observation_type == 'hybrid':
-				self.s1 = self.axs[1].imshow(np.sum([self.individual_state(i)['visual_state'][2] for i in range(self.number_of_agents)], axis=0), cmap='gray')
+				self.s1 = self.axs[1].imshow(np.sum([self.individual_state(i)['visual_state'][2] for i in range(self.number_of_agents)], axis=0),
+				                             cmap='gray')
 			else:
 				raise NotImplementedError('Cannot render with an invalid observation type.')
 
@@ -504,8 +563,9 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		assert self.env_config['movement_type'] == 'DIRECTIONAL', 'This function is only valid for DIRECTIONAL movement.'
 
-		angles = 2 * np.pi * np.arange(0, self.env_config['number_of_actions'])/self.env_config['number_of_actions']
-		possible_points = self.fleet.vehicles[ind].position + self.env_config['measurement_distance'] * np.column_stack((np.cos(angles), np.sin(angles)))
+		angles = 2 * np.pi * np.arange(0, self.env_config['number_of_actions']) / self.env_config['number_of_actions']
+		possible_points = self.fleet.vehicles[ind].position + 1.05 * self.env_config['measurement_distance'] * np.column_stack(
+			(np.cos(angles), np.sin(angles)))
 
 		return np.asarray(list(map(self.fleet.vehicles[ind].is_the_position_valid, possible_points)))
 
@@ -526,7 +586,7 @@ if __name__ == '__main__':
 				'target_threshold': 0.5,
 				'ground_truth': np.random.rand(50, 50),
 				'measurement_size': np.array([0, 0]),
-				'max_travel_distance': 150,
+				'max_travel_distance': 100,
 			},
 			'number_of_vehicles': N,
 			'initial_positions': np.array([[15, 19],
@@ -539,9 +599,9 @@ if __name__ == '__main__':
 		'dynamic': 'Shekel',
 		'min_measurement_distance': 3,
 		'max_measurement_distance': 6,
-		'measurement_distance': 2,
+		'measurement_distance': 3,
 		'number_of_actions': 8,
-		'kernel_length_scale': 2,
+		'kernel_length_scale': 10,
 		'random_benchmark': True,
 		'observation_type': 'visual',
 		'max_collisions': 10,
@@ -576,16 +636,14 @@ if __name__ == '__main__':
 		actions = {i: env.action_space.sample() for i in range(N)}
 		states, rewards, dones, infos = env.step({i: actions[i] for i in dones.keys() if (not dones[i]) and i != '__all__'})
 
-
 		for i in range(N):
 			mask = env.get_action_mask(i)
 			if not mask[actions[i]]:
-				actions[i] = np.random.choice(np.arange(env.env_config['number_of_actions']), p=mask.astype(int)/np.sum(mask))
+				actions[i] = np.random.choice(np.arange(env.env_config['number_of_actions']), p=mask.astype(int) / np.sum(mask))
 
-
-		H.append(list(100*env.individual_uncertainty_decrement/env.uncertainty_0))
+		H.append(list(100 * env.individual_uncertainty_decrement / env.uncertainty_0))
 		reg.append(list(env.last_measurement_values))
-		rew.append(list(100*env.individual_uncertainty_decrement*(env.last_measurement_values)/env.uncertainty_0))
+		rew.append(list(100 * env.individual_uncertainty_decrement * (env.last_measurement_values) / env.uncertainty_0))
 		colli.append(list(env.number_of_collisions))
 
 		print("States: ", states.keys())
@@ -594,7 +652,6 @@ if __name__ == '__main__':
 		print("Info: ", infos)
 		print("Fleet state", env.fleet.fleet_state)
 		env.render()
-
 
 	print("Finished!")
 	plt.show(block=True)
@@ -614,4 +671,3 @@ if __name__ == '__main__':
 	plt.show(block=True)
 
 	print(np.sum(rew))
-

@@ -1,17 +1,14 @@
 import ray
-from ray import tune
 from ray.rllib.agents.dqn import DQNTrainer, DEFAULT_CONFIG
-from Environment.IGEnvironments import InformationGatheringEnv
 import numpy as np
 from Model.rllib_models import FullVisualQModel
-from ray.rllib.evaluation.metrics import collect_episodes, summarize_episodes
 
-from typing import Dict, Tuple
-from ray.rllib.agents.callbacks import DefaultCallbacks
-from ray.rllib.env import BaseEnv
-from ray.rllib.evaluation import Episode, RolloutWorker
-from ray.rllib.policy import Policy
-from ray.rllib.policy.sample_batch import SampleBatch
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF
+from sklearn.metrics import mean_squared_error
+
+from Environment.IGEnvironments import InformationGatheringEnv
+from Evaluation.Utils.metrics_wrapper import MetricsDataCreator
 
 
 """ Initialize Ray """
@@ -178,34 +175,80 @@ config = {
 
 }
 
-
+# Create the environment and set up the evaluation mode #
 env = InformationGatheringEnv(env_config)
+env.eval()
 
 trainer = DQNTrainer(config=config)
 
 trainer.restore('/Users/samuel/MultiAgentInformationGathering/Training/runs/checkpoint_000001/checkpoint-1')
 
-episode_reward = 0.0
-num_episodes = 0
-obs = env.reset()
+# Create the evaluator and pass the metrics #
+evaluator = MetricsDataCreator(metrics_names=['Mean Reward',
+                                              'Average Uncertainty',
+                                              'Mean regret',
+                                              'Model Error',
+                                              'Peak position error',
+                                              'Peak value error'],
+                               algorithm_name='DRL',
+                               experiment_name='DeepReinforcementLearningResults')
 
-while num_episodes < 10:
-	# Compute an action (`a`).
+paths = MetricsDataCreator(
+							metrics_names=['vehicle', 'x', 'y'],
+							algorithm_name='DRL',
+							experiment_name='DeepReinforcementLearningResults_paths',
+							directory='./')
 
-	a = trainer.compute_single_action(
-		observation=obs,
-		explore=False,
-		policy_id="shared_policy",  # <- default value
-	)
-	# Send the computed action `a` to the env.
-	obs, reward, done, _ = env.step(a)
-	episode_reward += np.sum(list(reward.values))
-	# Is the episode `done`? -> Reset.
-	env.render()
-	if done['__all__']:
-		print(f"Episode done: Total reward = {episode_reward}")
-		obs = env.reset()
-		num_episodes += 1
-		episode_reward = 0.0
+gp = GaussianProcessRegressor(kernel=RBF(length_scale=15.0, length_scale_bounds=(2.0, 100.0)), alpha=0.001)
 
-ray.shutdown()
+for run in range(20):
+
+	# Reset the environment #
+	t = 0
+	obs = env.reset()
+	done = {i: False for i in range(N)}
+	done['__all__'] = False
+	episode_reward = 0
+
+	while not done['__all__']:
+
+		# Compute action for every agent #
+		action = {}
+		for agent_id, agent_obs in obs.items():
+			if not done[agent_id]:
+				action[agent_id] = trainer.compute_action(agent_obs, policy_id='shared_policy', explore=False)
+
+		# Send the computed action `a` to the env.
+		obs, reward, done, info = env.step(action)
+		env.render()
+
+		# Save the reward #
+		episode_reward += np.sum(list(reward.values()))
+
+		# Let's test if there is much more improvement with a complimentary surrogate model
+		gp.fit(env.measured_locations, env.measured_values)
+
+		surr_mu, surr_unc = gp.predict(env.visitable_positions, return_std=True)
+		real_mu = env.ground_truth.ground_truth_field[env.visitable_positions[:, 0], env.visitable_positions[:, 1]]
+
+		mse = mean_squared_error(y_true=real_mu, y_pred=surr_mu, squared=False)
+
+		metrics = [info['metrics']['accumulated_reward'],
+		           info['metrics']['uncertainty'],
+		           info['metrics']['instant_regret'],
+		           mse,
+		           info['metrics']['peak_location_error'],
+		           info['metrics']['peak_value_error'],
+		           ]
+
+		evaluator.register_step(run_num=run, step=t, metrics=[*metrics])
+		for veh_id, veh in enumerate(env.fleet.vehicles):
+			paths.register_step(run_num=run, step=t, metrics=[veh_id, veh.position[0], veh.position[1]])
+
+		t += 1
+
+	print(f"Episode done: Total reward = {episode_reward}")
+
+# Register the metrics #
+evaluator.register_experiment()
+paths.register_experiment()
