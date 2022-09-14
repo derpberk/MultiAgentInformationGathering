@@ -15,7 +15,14 @@ navigation_map = np.genfromtxt('../../Environment/wesslinger_map.txt')
 
 N = 4
 
-same_evaluation_scenario = False
+from ShekelGroundTruth import Shekel
+from OilSpillEnvironment import OilSpill
+from FireFront import WildfireSimulator
+
+gt = WildfireSimulator
+gt_config_file = gt.sim_config_template
+gt_config_file['navigation_map'] = navigation_map
+
 env_config = {
 	'fleet_configuration': {
 		'vehicle_configuration': {
@@ -34,18 +41,22 @@ env_config = {
 	},
 	'movement_type': 'DIRECTIONAL',
 	'navigation_map': navigation_map,
-	'dynamic': 'Shekel',
-	'min_measurement_distance': 6,
-	'max_measurement_distance': 3,
-	'measurement_distance': 5,
+	'min_measurement_distance': 3,
+	'max_measurement_distance': 6,
+	'measurement_distance': 3,
 	'number_of_actions': 8,
-	'kernel_length_scale': 5,
+	'kernel_length_scale': (2.5, 2.5, 50),
+	'kernel_length_scale_bounds': ((0.1, 10), (0.1, 10), (0.001, 100)),
 	'random_benchmark': True,
 	'observation_type': 'visual',
 	'max_collisions': 10,
 	'eval_mode': True,
-	'seed': 10,
+	'seed': 23,
 	'reward_type': 'improvement',
+	'dynamic': False,
+	'ground_truth': gt,
+	'ground_truth_config': gt_config_file,
+	'temporal': False,
 }
 
 # Create the environment #
@@ -57,9 +68,7 @@ np.random.seed(0)
 evaluator = MetricsDataCreator(metrics_names=['Mean Reward',
                                               'Average Uncertainty',
                                               'Mean regret',
-                                              'Model Error',
-                                              'Peak position error',
-                                              'Peak value error'],
+                                              'Model Error'],
                                algorithm_name='Greedy ExpImp',
                                experiment_name='ExpectedImprovementResults')
 
@@ -166,8 +175,6 @@ for run in range(30):
 		           info['metrics']['uncertainty'],
 		           info['metrics']['instant_regret'],
 		           mse,
-		           info['metrics']['peak_location_error'],
-		           info['metrics']['peak_value_error'],
 		           ]
 
 		evaluator.register_step(run_num=run, step=t, metrics=[*metrics])

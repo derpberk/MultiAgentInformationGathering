@@ -7,6 +7,7 @@ from Fleet import Fleet
 from Vehicle import FleetState
 from typing import Union
 from random import shuffle
+import matplotlib.pyplot as plt
 
 # noinspection GrazieInspection
 class InformationGatheringEnv(MultiAgentEnv):
