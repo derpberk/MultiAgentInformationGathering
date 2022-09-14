@@ -2,30 +2,47 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.ndimage import gaussian_filter
+from groundtruth import GroundTruth
 
-class OilSpillEnv:
 
-	def __init__(self, boundaries_map, dt=1, kw=0.5, kc=1, gamma=1, flow=50, seed = 0):
+class OilSpill(GroundTruth):
 
-		# Environment parameters
+	sim_config_template = {
+		"navigation_map": np.ones((100, 100)),
+		"seed": 9875123,
+		"dt": 1.0,
+		"kw": 1.0,
+		"kc": 1.0,
+		"gamma": 1.0,
+		"flow": 10.0,
+		'normalize': True,
+		'initial_time': 10,
+	}
 
-		self.seed = seed
+	def __init__(self, sim_config: dict):
+		super().__init__(sim_config)
+
+		self.seed = sim_config['seed']
+		self.initial_time = sim_config["initial_time"]
+
 		np.random.seed(self.seed)
+
 		self.done = None
 		self.im0 = None
 		self.im1 = None
 		self.v = None
 		self.u = None
-		self.boundaries_map = boundaries_map
+
+		self.boundaries_map = sim_config['navigation_map']
 		self.x, self.y = np.meshgrid(np.arange(0, self.boundaries_map.shape[0]),
 		                             np.arange(0, self.boundaries_map.shape[1]))
 
 		self.visitable_positions = np.column_stack(np.where(self.boundaries_map == 1)).astype(float)
 
-		self.dt = dt
-		self.Kw = kw
-		self.Kc = kc
-		self.gamma = gamma
+		self.dt = sim_config['dt']
+		self.Kw = sim_config['kw']
+		self.Kc = sim_config['kc']
+		self.gamma = sim_config['gamma']
 
 		self.x_bins = np.arange(0, self.boundaries_map.shape[0]+1)
 		self.y_bins = np.arange(0, self.boundaries_map.shape[1]+1)
@@ -37,7 +54,7 @@ class OilSpillEnv:
 		self.contamination_position = None
 		self.contamination_speed = None
 		self.ground_truth_field = None
-		self.flow = flow
+		self.flow = int(sim_config['flow'])
 		self.spill_directions = None
 
 		self.particles_speeds = None
@@ -47,7 +64,7 @@ class OilSpillEnv:
 		self.ax = None
 		self.fig = None
 
-	def reset(self, random_benchmark = True):
+	def reset(self, random_benchmark=True):
 		"""Reset the env variables"""
 
 		if not self.init:
@@ -73,6 +90,9 @@ class OilSpillEnv:
 
 		# Density map
 		self.ground_truth_field = np.zeros_like(self.boundaries_map)
+
+		if self.initial_time is not None:
+			self.update_to_time(self.initial_time)
 
 	def step(self):
 		""" Process the action and update the environment state """
@@ -154,25 +174,30 @@ class OilSpillEnv:
 		self.fig.canvas.flush_events()
 		plt.pause(0.0001)
 
+	def read(self, position=None):
+		""" Read the complete ground truth or a certain position """
+
+		if position is None:
+			return self.ground_truth_field
+		else:
+			return self.ground_truth_field[position[0]][position[1]]
+
 	def update_to_time(self, t):
 
-		self.reset()
-
-		t0 = time.time()
 		for _ in range(t):
 			self.step()
 
-		print("Mean time per iteration: ", (time.time()-t0)/t)
 		return self.ground_truth_field
 
 
 if __name__ == '__main__':
 
-	my_map = np.genfromtxt('/Users/samuel/MultiAgentInformationGathering/Environment/wesslinger_map.txt')
+	my_map = np.genfromtxt('./wesslinger_map.txt')
 
+	config_dict = OilSpill.sim_config_template
+	config_dict['navigation_map'] = my_map
 
-	env = OilSpillEnv(my_map, dt=1, flow=30, gamma=1, kc=0.5, kw=0.5)
-	env.reset()
+	env = OilSpill(config_dict)
 	env.reset()
 
 	for _ in range(10):

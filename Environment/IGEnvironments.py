@@ -3,19 +3,49 @@ from ray.rllib.env.multi_agent_env import MultiAgentEnv
 import numpy as np
 from sklearn.gaussian_process.kernels import RBF
 from sklearn.gaussian_process import GaussianProcessRegressor
-from OilSpillEnvironment import OilSpillEnv
-from ShekelGroundTruth import Shekel
 from Fleet import Fleet
 from Vehicle import FleetState
 from typing import Union
 from random import shuffle
-from skimage.feature import peak_local_max
-
-import matplotlib.pyplot as plt
-
 
 # noinspection GrazieInspection
 class InformationGatheringEnv(MultiAgentEnv):
+
+	default_env_config =  {
+		'fleet_configuration': {
+			'vehicle_configuration': {
+				'dt': 0.1,
+				'navigation_map': np.ones((50, 50)),
+				'target_threshold': 0.5,
+				'ground_truth': np.random.rand(50, 50),
+				'measurement_size': np.array([0, 0]),
+				'max_travel_distance': 50,
+			},
+			'number_of_vehicles': 4,
+			'initial_positions': np.array([[15, 19],
+			                               [13, 19],
+			                               [18, 19],
+			                               [15, 22]])
+		},
+		'movement_type': 'DIRECTIONAL',
+		'navigation_map': np.ones((50, 50)),
+		'min_measurement_distance': 3,
+		'max_measurement_distance': 6,
+		'measurement_distance': 3,
+		'number_of_actions': 8,
+		'kernel_length_scale': (3, 3, 50),
+		'kernel_length_scale_bounds': ((0.1, 10), (0.1, 10), (0.001, 100)),
+		'random_benchmark': True,
+		'observation_type': 'visual',
+		'max_collisions': 10,
+		'eval_mode': True,
+		'seed': 10,
+		'reward_type': 'improvement',
+		'dynamic': False,
+		'ground_truth': None,
+		'ground_truth_config': None,
+		'temporal': False,
+	}
 
 	def __init__(self, env_config: dict):
 
@@ -23,18 +53,19 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		# Environment configuration dictionary
 		self.env_config = env_config
+		self.env_config['fleet_configuration']['navigation_map'] = self.env_config['navigation_map']
 
 		# Create a fleet of N vehicles #
-		self.fleet = Fleet(fleet_configuration=env_config['fleet_configuration'])
+		self.fleet = Fleet(fleet_configuration=self.env_config['fleet_configuration'])
 		# Save the number of agents #
-		self.number_of_agents = env_config['fleet_configuration']['number_of_vehicles']
+		self.number_of_agents = self.env_config['fleet_configuration']['number_of_vehicles']
 		# Save the agents ids #
 		self.agents_ids = list(range(self.number_of_agents))
 		# Create a set of agents IDs - This is required for the RLLIB MA Environment class #
 		self._agent_ids = set(range(self.number_of_agents))
 
 		# Define the observation space and the action space #
-		self.observation_type = env_config['observation_type']
+		self.observation_type = self.env_config['observation_type']
 
 		number_of_channels = 4 if self.env_config['reward_type'] == 'uncertainty' else 5
 		if self.observation_type == 'visual':
@@ -44,11 +75,11 @@ class InformationGatheringEnv(MultiAgentEnv):
 			# - The other vehicles positions on the map
 			# - The mu of the model
 			# - The uncertainty of the model
-			self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(number_of_channels, *env_config['navigation_map'].shape))
+			self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(number_of_channels, *self.env_config['navigation_map'].shape))
 		elif self.observation_type == 'hybrid':
 			# The hybrid state is its position [x,y] and 3 images [fleet positions, mean-model, uncertainty] #
 			self.observation_space = gym.spaces.Dict(
-				{'visual_state': gym.spaces.Box(low=-1.0, high=1.0, shape=(number_of_channels - 1, *env_config['navigation_map'].shape)),
+				{'visual_state': gym.spaces.Box(low=-1.0, high=1.0, shape=(number_of_channels - 1, *self.env_config['navigation_map'].shape)),
 				 'odometry': gym.spaces.Box(low=-1.0, high=1.0, shape=(2,))})
 		else:
 			raise NotImplementedError('This observation type is not defined. Pleas choose between: visual / hybrid')
@@ -56,7 +87,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 		# Define the type of the action #
 		if env_config['movement_type'] == 'DIRECTIONAL':
 			# The action space is a discrete action space with number_of_actions actions:
-			self.action_space = gym.spaces.Discrete(env_config['number_of_actions'])
+			self.action_space = gym.spaces.Discrete(self.env_config['number_of_actions'])
 		elif env_config['movement_type'] == 'DIRECTIONAL_DISTANCE':
 			# This action is defined with the direction and the distance to move (both normalized between -1 and 1) #
 			self.action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(2,))
@@ -74,10 +105,8 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		# Ground truth - The task to solve #
 		self.random_benchmark = env_config['random_benchmark']
-		if env_config['dynamic'] == 'OilSpillEnv':
-			self.ground_truth = OilSpillEnv(self.env_config['navigation_map'], dt=1, flow=10, gamma=1, kc=1, kw=1, seed=self.env_config['seed'])
-		elif env_config['dynamic'] == 'Shekel':
-			self.ground_truth = Shekel(self.env_config['navigation_map'], 1, max_number_of_peaks=4, is_bounded=True, seed=self.env_config['seed'])
+		if self.env_config['ground_truth'] is not None:
+			self.ground_truth = self.env_config['ground_truth'](self.env_config['ground_truth_config'])
 		else:
 			raise NotImplementedError("This benchmark is not implemented")
 
@@ -89,7 +118,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 		if env_config['temporal']:
 			self.kernel = RBF(length_scale=env_config['kernel_length_scale'], length_scale_bounds=env_config['kernel_length_scale_bounds'])
 		else:
-			self.kernel = RBF(length_scale=env_config['kernel_length_scale'], length_scale_bounds=(0.1, 10.0))
+			self.kernel = RBF(length_scale=env_config['kernel_length_scale'][0], length_scale_bounds=env_config['kernel_length_scale_bounds'][0])
 
 		# The Gaussian Process #
 		self.GaussianProcess = GaussianProcessRegressor(kernel=self.kernel, alpha=0.01, optimizer=None, n_restarts_optimizer=10)
@@ -134,7 +163,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		self.resetted = True
 
-		# Reset the dones #
+		# Reset the dones and the done flag #
 		self.dones = {i: False for i in range(self.number_of_agents)}
 		self.dones['__all__'] = False
 
@@ -363,6 +392,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 		""" Setter to update the ground truth of the vehicles. """
 
 		for vehicle in self.fleet.vehicles:
+			self.ground_truth.step()
 			vehicle.ground_truth = self.ground_truth.ground_truth_field
 
 	def action_dict_to_targets(self, a_dict: dict) -> np.ndarray:
@@ -418,28 +448,8 @@ class InformationGatheringEnv(MultiAgentEnv):
 		               }
 
 		if mission_type == 'MaximaSearch':
-			# Get the maxima from the ground truth field #
-			real_maxima_locs = peak_local_max(self.ground_truth.ground_truth_field,
-			                                  min_distance=2,
-			                                  threshold_abs=0.1,
-			                                  num_peaks=self.ground_truth.number_of_peaks)
-
-			maxima_values = np.array([self.ground_truth.ground_truth_field[pos[0], pos[1]] for pos in real_maxima_locs])
-
-			# The same for our model
-			estimated_maxima_locs = np.zeros_like(real_maxima_locs)
-			new_estimated_maxima_locs = peak_local_max(self.mu,
-			                                       min_distance=2,
-			                                       threshold_abs=0.1,
-			                                       num_peaks=len(maxima_values))
-
-			estimated_maxima_locs[0:len(new_estimated_maxima_locs)] = new_estimated_maxima_locs
-
-			estimated_values = np.array([self.ground_truth.ground_truth_field[pos[0], pos[1]] for pos in estimated_maxima_locs])
-
-			metric_dict['peak_location_error'] = np.sqrt(((estimated_maxima_locs - real_maxima_locs) ** 2).sum(1)).mean()
-			metric_dict['peak_value_error'] = np.sqrt(((maxima_values - estimated_values) ** 2)).mean()
-
+			pass
+			# TODO: Implement the metrics
 		else:
 			raise NotImplementedError("This is not a valid mission type:")
 
@@ -474,9 +484,15 @@ class InformationGatheringEnv(MultiAgentEnv):
 		# Step until any vehicle has completed (or failed its goal) #
 		new_measurements = None
 
+		if self.env_config['dynamic']:
+			self.ground_truth.step()
+			self.update_vehicles_ground_truths()
+			# TODO: Implement a method to update depending on the time that has passed since the last time
+
 		if self.env_config['movement_type'] == 'DIRECTIONAL':
 			# Update until ALL vehicles have arrived to their goals #
 			_, new_measurements = self.fleet.update_syncronously()
+
 		elif self.env_config['movement_type'] == 'DIRECTIONAL_DISTANCE':
 			# Update until AT LEAST ONE vehicle has arrived to their goals#
 			_, new_measurements = self.fleet.update_asyncronously()
@@ -507,10 +523,6 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		# Info is useless by the moment
 		self.infos = {i: {'Collisions': self.number_of_collisions[i]} for i in ready_agents_ids}
-
-		# Update the ground truth state and pass the field to agents #
-		self.ground_truth.step()
-		self.update_vehicles_ground_truths()
 
 		# Compute if the agents have finished #
 		self.dones = {i: val for i, val in zip(ready_agents_ids, done_agents_vals)}
@@ -593,10 +605,17 @@ class InformationGatheringEnv(MultiAgentEnv):
 if __name__ == '__main__':
 
 	import matplotlib.pyplot as plt
+	from ShekelGroundTruth import Shekel
+	from OilSpillEnvironment import OilSpill
+	from FireFront import WildfireSimulator
 
 	navigation_map = np.genfromtxt('./wesslinger_map.txt')
 
 	N = 4
+
+	gt = OilSpill
+	gt_config_file = gt.sim_config_template
+	gt_config_file['navigation_map'] = navigation_map
 
 	env_config = {
 		'fleet_configuration': {
@@ -606,7 +625,7 @@ if __name__ == '__main__':
 				'target_threshold': 0.5,
 				'ground_truth': np.random.rand(50, 50),
 				'measurement_size': np.array([0, 0]),
-				'max_travel_distance': 100,
+				'max_travel_distance': 50,
 			},
 			'number_of_vehicles': N,
 			'initial_positions': np.array([[15, 19],
@@ -616,20 +635,22 @@ if __name__ == '__main__':
 		},
 		'movement_type': 'DIRECTIONAL',
 		'navigation_map': navigation_map,
-		'dynamic': 'Shekel',
 		'min_measurement_distance': 3,
 		'max_measurement_distance': 6,
-		'measurement_distance': 3,
+		'measurement_distance': 2,
 		'number_of_actions': 8,
-		'kernel_length_scale': (3, 3, 50),
+		'kernel_length_scale': (2, 2, 50),
 		'kernel_length_scale_bounds': ((0.1, 10), (0.1, 10), (0.001, 100)),
 		'random_benchmark': True,
 		'observation_type': 'visual',
 		'max_collisions': 10,
 		'eval_mode': True,
-		'seed': 10,
+		'seed': 23,
 		'reward_type': 'improvement',
-		'temporal': True,
+		'dynamic': False,
+		'ground_truth': gt,
+		'ground_truth_config': gt_config_file,
+		'temporal': False,
 	}
 
 	# Create the environment #
