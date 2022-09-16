@@ -45,5 +45,5 @@ with plt.style.context('seaborn-darkgrid'):
 	plt.hist(theta, density=True)
 	plt.xlabel('lengthscale of RBF $(l)$')
 	plt.ylabel('Density')
-	np.savetxt('./lengthscale_histogram.txt', theta)
+	np.savetxt('./lengthscale_histogram_shekel.txt', theta)
 	plt.show()
