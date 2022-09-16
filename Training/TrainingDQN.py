@@ -19,10 +19,19 @@ ray.init()
 config = DEFAULT_CONFIG.copy()
 
 """ Environment configuration"""
-navigation_map = np.genfromtxt('../Environment/wesslinger_map.txt')
+navigation_map = np.genfromtxt('../../Environment/wesslinger_map.txt')
+
 N = 4
 
-same_evaluation_scenario = False
+from ShekelGroundTruth import Shekel
+from OilSpillEnvironment import OilSpill
+from FireFront import WildfireSimulator
+
+gt = Shekel
+gt_config_file = gt.sim_config_template
+gt_config_file['navigation_map'] = navigation_map
+
+
 env_config = {
 	'fleet_configuration': {
 		'vehicle_configuration': {
@@ -31,7 +40,7 @@ env_config = {
 			'target_threshold': 0.5,
 			'ground_truth': np.random.rand(50, 50),
 			'measurement_size': np.array([0, 0]),
-			'max_travel_distance': 100,
+			'max_travel_distance': 50,
 		},
 		'number_of_vehicles': N,
 		'initial_positions': np.array([[15, 19],
@@ -41,18 +50,22 @@ env_config = {
 	},
 	'movement_type': 'DIRECTIONAL',
 	'navigation_map': navigation_map,
-	'dynamic': 'Shekel',
 	'min_measurement_distance': 3,
 	'max_measurement_distance': 6,
-	'measurement_distance': 2,
+	'measurement_distance': 3,
 	'number_of_actions': 8,
-	'kernel_length_scale': 2,
+	'kernel_length_scale': (2.5, 2.5, 50),
+	'kernel_length_scale_bounds': ((0.1, 10), (0.1, 10), (0.001, 100)),
 	'random_benchmark': True,
 	'observation_type': 'visual',
 	'max_collisions': 10,
 	'eval_mode': True,
-	'seed': 10,
+	'seed': 23,
 	'reward_type': 'improvement',
+	'dynamic': True,
+	'ground_truth': gt,
+	'ground_truth_config': gt_config_file,
+	'temporal': False,
 }
 
 eval_env_config = env_config.copy()
