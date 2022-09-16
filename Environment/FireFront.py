@@ -106,7 +106,6 @@ class WildfireSimulator(GroundTruth):
 		fire_field = np.column_stack(np.where(self.burning_map == 1))
 
 		self.ground_truth_field, _, _ = np.histogram2d(fire_field[:, 0], fire_field[:, 1], [self.x_bins, self.y_bins])
-
 		self.ground_truth_field = self.ground_truth_field * self.navigation_map
 
 		if self.initial_time is not None:
@@ -127,8 +126,8 @@ class WildfireSimulator(GroundTruth):
 			yk0 = max(0, math.floor(position[1] - self.max_distance))
 			yk1 = min(self.height, math.ceil(position[1] + self.max_distance))
 
+			if self.burning_dict[position][2]:
 
-			if self.burning_dict[position][2] == True:
 				counter += 1
 				for xk in range(xk0, xk1):
 					for yk in range(yk0, yk1):
@@ -142,6 +141,7 @@ class WildfireSimulator(GroundTruth):
 								# p = 0.05
 								self.ignite_dict[(xk, yk)] = self.ignite_dict[(xk, yk)] * (1 - p)
 							fuel_contact = 1
+
 			if fuel_contact == 0:
 				self.burning_dict[position][2] = False
 
@@ -164,6 +164,7 @@ class WildfireSimulator(GroundTruth):
 				self.burning_dict[cell] = [True, self.fuel_map[cell[0]][1], True]
 				self.burning_map[cell[0]][cell[1]] = 1
 				remove_ignited.append(cell)
+
 		for cell in remove_ignited:
 			self.ignite_dict.pop(cell)
 
