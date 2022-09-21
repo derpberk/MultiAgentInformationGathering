@@ -1,49 +1,52 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import RBF, ConstantKernel
-from deap import benchmarks
+from sklearn.gaussian_process.kernels import RBF, ConstantKernel, Matern
+from Environment.OilSpillEnvironment import OilSpill
+from Environment.ShekelGroundTruth import Shekel
+from Environment.FireFront import WildfireSimulator
+from sklearn.metrics import mean_squared_error
+
 from mpl_toolkits.mplot3d import Axes3D
 
 
-max_distance = 0.1
+max_distance = 3.0
+
 temporal = False
 """ Gaussian Process Regressor """
 if temporal:
-    gp = GaussianProcessRegressor(kernel=RBF(length_scale=(0.1, 0.1, 20), length_scale_bounds=[(0.1,0.1),(0.1,0.1),(20,20)]), alpha=0.01)
+    gp = GaussianProcessRegressor(kernel=Matern(length_scale=(3.5, 3.5, 60), length_scale_bounds=[(3.5, 3.5), (3.5, 3.5), (60, 60)]), optimizer=None, alpha=0.01)
 
 else:
-    gp = GaussianProcessRegressor(kernel=RBF(length_scale=0.5, length_scale_bounds=(0.1, 0.1)), alpha=0.00001, n_restarts_optimizer=20)
-
-""" Benchmark parameters """
-A = [[0.5,  0.5],
-     [0.25, 0.25],
-     [0.25, 0.75],
-     [0.75, 0.25],
-     [0.75, 0.75]]
-
-C = [0.02, 0.02, 0.02, 0.005, 0.005]
-
-def shekel_arg0(sol):
-    return benchmarks.shekel(sol, A, C)[0]
+    # gp = GaussianProcessRegressor(kernel=RBF(length_scale=3.5, length_scale_bounds=(0.1, 10.)), alpha=0.00001, n_restarts_optimizer=20, optimizer=None,)
+    gp = GaussianProcessRegressor(kernel=Matern(length_scale=3.5, length_scale_bounds=(0.1, 10.)), alpha=0.00001, n_restarts_optimizer=20, optimizer=None,)
 
 
+config = WildfireSimulator.sim_config_template
+config['navigation_map'] = np.ones((50, 50))
+config['init_time'] = 0
+
+gt = WildfireSimulator(config)
+gt.reset()
 """ Compute Ground Truth """
-fig, ax = plt.subplots(1,3)
-X = np.arange(0, 1, 0.02)
-Y = np.arange(0, 1, 0.02)
-X, Y = np.meshgrid(X, Y)
-Z = np.fromiter(map(shekel_arg0, zip(X.flat,Y.flat)), dtype=float, count=X.shape[0]*X.shape[1]).reshape(X.shape)
-Z = np.asarray((Z - Z.min())/(Z.max() - Z.min() + 1E-8))
-x_locs = np.column_stack((X.flatten(),Y.flatten()))
-x_meas = np.asarray([[0.0, 0.0],
-                     [0.1, 0.1]])
+fig = plt.figure(constrained_layout=False)
+gs = fig.add_gridspec(nrows=2, ncols=3)
+ax = []
+ax.append(fig.add_subplot(gs[0, 0]))
+ax.append(fig.add_subplot(gs[0, 1]))
+ax.append(fig.add_subplot(gs[0, 2]))
+ax.append(fig.add_subplot(gs[1, :]))
 
-t_sample = np.zeros((2, 1))
+x_locs = np.column_stack(np.where(gt.sim_config_template['navigation_map'] == 1))
 
-y_meas = Z[(x_meas[:,0]*50).astype(int), (x_meas[:,1]*50).astype(int)]
+x_meas = np.asarray([[0.0, 0.0]])
+
+t_sample = np.zeros((1, 1))
+
+y_meas = np.array([gt.read(position=x_meas[-1].astype(int))])
 
 
+position = np.array([0.1, 0.1])
 
 """ Fit the data """
 if temporal:
@@ -53,11 +56,18 @@ else:
     gp.fit(x_meas, y_meas)
     mu, sigma = gp.predict(x_locs, return_std=True)
 
+error = []
+error.append(mean_squared_error(gt.ground_truth_field.flatten(), mu))
+
 """ Plot the data"""
-d = ax[0].imshow(mu.reshape(Z.shape), cmap='jet', vmax=1.0, vmin=0.0)
-ds = ax[1].imshow(sigma.reshape(Z.shape), cmap='viridis')
-d1, = ax[0].plot(x_meas[:,1]*50, x_meas[:,0]*50, 'r-x')
-de = ax[2].imshow(Z.T, cmap='jet', vmax=1.0, vmin=0.0)
+d = ax[0].imshow(gt.read(), cmap='jet', vmax=1.0, vmin=0.0)
+ds = ax[1].imshow(sigma.reshape(gt.ground_truth_field.shape), cmap='viridis')
+d1, = ax[0].plot(x_meas[:,1]*50, x_meas[:,0]*50, 'r-x', markersize=2, linewidth=0.1)
+de = ax[2].imshow(gt.read(), cmap='jet', vmax=1.0, vmin=0.0)
+derr, = ax[3].plot(error, 'x-')
+
+ax[3].set_xlim((0, 100))
+ax[3].set_ylim((0, error[0]))
 
 H = sigma.sum()
 R = []
@@ -68,39 +78,72 @@ H0 = sigma.sum()
 
 sigma_ant = sigma.copy()
 
+
+def get_measurement(gt_field, point, size, step):
+
+    x = np.linspace(point[0] - size, point[0] + size, step).astype(int)
+    y = np.linspace(point[1] - size, point[1] + size, step).astype(int)
+
+    positions = np.array(np.meshgrid(x, y)).T.reshape(-1, 2)
+    values = gt_field[positions[:, 0], positions[:, 1]]
+
+    return positions, values
+
 def onclick(event):
 
     global x_meas
     global y_meas
     global gp
     global d
-    global H, R, Re, He, sigma_ant, t_sample
+    global H, R, Re, He, sigma_ant, t_sample, position
 
     """ Get the new measurement """
-    new_point = np.array([event.xdata/50, event.ydata/50])
+    new_point = np.array([event.ydata, event.xdata])
 
-    new_direction = new_point - x_meas[-1]
+    new_direction = new_point - position
     new_normalized_direction = new_direction/np.linalg.norm(new_direction)
-    add_point = x_meas[-1] + new_normalized_direction*max_distance
+    add_point = position + new_normalized_direction*max_distance
 
-    new_measurement = Z[(add_point[0]*Z.shape[0]).astype(int), (add_point[1]*Z.shape[1]).astype(int)][np.newaxis]
+    position = add_point
 
-    x_meas = np.vstack((x_meas, add_point.copy()))
+    # new_measurement = Z[(add_point[0]*Z.shape[0]).astype(int), (add_point[1]*Z.shape[1]).astype(int)][np.newaxis]
+
+    new_locations, new_measurement = get_measurement(gt.read(), add_point, size=3, step=3)
+
+    x_meas = np.vstack((x_meas, new_locations))
     y_meas = np.concatenate((y_meas, new_measurement))
-
-    t_sample += 1
-    t_sample = np.vstack((t_sample, np.array([0])))
 
 
     """ Fit the GP """
     if temporal:
-        gp.fit(np.hstack((x_meas, t_sample)), y_meas)
+
+        t_sample += 1
+        t_sample = np.vstack((t_sample, np.zeros_like(new_measurement).reshape(-1,1)))
+        forgot_indexes = np.where(t_sample.flatten() < 50)
+
+        x_meas = x_meas[forgot_indexes]
+        y_meas = y_meas[forgot_indexes]
+        t_sample = t_sample[forgot_indexes]
+
+        features, unique_indx = np.unique(np.hstack((x_meas, t_sample)), axis=0, return_index=True)
+        y_meas = y_meas[unique_indx]
+        x_meas = x_meas[unique_indx]
+        t_sample = t_sample[unique_indx]
+        gp.fit(features, y_meas)
         mu_, sigma_ = gp.predict(np.hstack((x_locs, np.zeros((x_locs.shape[0],1)))), return_std=True)
+
+        gt.step()
+
     else:
+
+        x_meas, unique_indx = np.unique(x_meas, axis=0, return_index=True)
+        y_meas = y_meas[unique_indx]
         gp.fit(x_meas, y_meas)
         mu_, sigma_ = gp.predict(x_locs, return_std=True)
+
     sigma_ant = sigma_.copy()
 
+    error.append(mean_squared_error(gt.ground_truth_field.flatten(), mu_))
 
     """ Compute the uncertainty decrement """
     uncertainty_decrement = 100*(H - sigma_.sum())/H0
@@ -123,11 +166,14 @@ def onclick(event):
     print('Reward', reward)
 
     """ Plot the results """
-    d.set_data(mu_.reshape(50, 50))
-    d1.set_xdata(x_meas[:, 0]*50)
-    d1.set_ydata(x_meas[:, 1]*50)
-    ds.set_data(sigma_.reshape(Z.shape))
-    de.set_data(Z.T)
+    d.set_data(mu_.reshape(gt.ground_truth_field.shape))
+    d1.set_xdata(x_meas[:, 1])
+    d1.set_ydata(x_meas[:, 0])
+    ds.set_data(sigma_.reshape(gt.ground_truth_field.shape))
+    de.set_data(gt.ground_truth_field)
+
+    derr.set_xdata(np.arange(0,len(error)))
+    derr.set_ydata(error)
     fig.canvas.draw()
     fig.canvas.flush_events()
 
@@ -138,14 +184,3 @@ plt.ioff()
 plt.ion()
 plt.show(block=True)
 
-
-with plt.style.context('seaborn-whitegrid'):
-
-    fig, axs = plt.subplots(4, 1, sharex=True)
-    axs[0].plot(R, 'b-o'); axs[0].set_ylabel('Reward')
-    axs[1].plot(y_meas[2:].flatten(), 'r-o'); axs[1].set_ylabel('Measurement value')
-    axs[2].plot(Re, 'g-o'); axs[2].set_ylabel('Regret')
-    axs[3].plot(He, 'k-o'); axs[3].set_ylabel('Uncertainty')
-    plt.show(block=True)
-
-    print("TOTAL REWARD: ", np.sum(R))

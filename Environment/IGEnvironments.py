@@ -15,9 +15,9 @@ class InformationGatheringEnv(MultiAgentEnv):
 	default_env_config =  {
 		'fleet_configuration': {
 			'vehicle_configuration': {
-				'dt': 0.1,
+				'dt': 0.05,
 				'navigation_map': np.ones((50, 50)),
-				'target_threshold': 0.5,
+				'target_threshold': 0.2,
 				'ground_truth': np.random.rand(50, 50),
 				'measurement_size': np.array([0, 0]),
 				'max_travel_distance': 50,
@@ -34,12 +34,12 @@ class InformationGatheringEnv(MultiAgentEnv):
 		'max_measurement_distance': 6,
 		'measurement_distance': 3,
 		'number_of_actions': 8,
-		'kernel_length_scale': (3, 3, 50),
+		'kernel_length_scale': (3.5, 3.5, 50),
 		'kernel_length_scale_bounds': ((0.1, 10), (0.1, 10), (0.001, 100)),
 		'random_benchmark': True,
 		'observation_type': 'visual',
 		'max_collisions': 10,
-		'eval_mode': True,
+		'eval_mode': False,
 		'seed': 10,
 		'reward_type': 'improvement',
 		'dynamic': False,
@@ -301,7 +301,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 		if self.env_config['reward_type'] == 'uncertainty':
 			reward = 100 * self.individual_uncertainty_decrement / self.uncertainty_0
 		elif self.env_config['reward_type'] == 'improvement':
-			reward = 100 * self.individual_uncertainty_decrement * self.last_measurement_values / self.uncertainty_0
+			reward = 100 * self.individual_uncertainty_decrement * (1.0 + self.last_measurement_values) / self.uncertainty_0
 		elif self.env_config['reward_type'] == 'error':
 			reward = self.individual_mse.copy()
 		else:
@@ -614,45 +614,13 @@ if __name__ == '__main__':
 
 	N = 4
 
-	gt = OilSpill
-	gt_config_file = gt.sim_config_template
+	gt_config_file = Shekel.sim_config_template
 	gt_config_file['navigation_map'] = navigation_map
-
-	env_config = {
-		'fleet_configuration': {
-			'vehicle_configuration': {
-				'dt': 0.1,
-				'navigation_map': navigation_map,
-				'target_threshold': 0.5,
-				'ground_truth': np.random.rand(50, 50),
-				'measurement_size': np.array([0, 0]),
-				'max_travel_distance': 50,
-			},
-			'number_of_vehicles': N,
-			'initial_positions': np.array([[15, 19],
-			                               [13, 19],
-			                               [18, 19],
-			                               [15, 22]])
-		},
-		'movement_type': 'DIRECTIONAL',
-		'navigation_map': navigation_map,
-		'min_measurement_distance': 3,
-		'max_measurement_distance': 6,
-		'measurement_distance': 2,
-		'number_of_actions': 8,
-		'kernel_length_scale': (2, 2, 50),
-		'kernel_length_scale_bounds': ((0.1, 10), (0.1, 10), (0.001, 100)),
-		'random_benchmark': True,
-		'observation_type': 'visual',
-		'max_collisions': 10,
-		'eval_mode': True,
-		'seed': 23,
-		'reward_type': 'improvement',
-		'dynamic': False,
-		'ground_truth': gt,
-		'ground_truth_config': gt_config_file,
-		'temporal': False,
-	}
+	env_config = InformationGatheringEnv.default_env_config
+	env_config['ground_truth'] = Shekel
+	env_config['ground_truth_config'] = gt_config_file
+	env_config['navigation_map'] = navigation_map
+	env_config['fleet_configuration']['vehicle_configuration']['navigation_map'] = navigation_map
 
 	# Create the environment #
 	env = InformationGatheringEnv(env_config=env_config)
@@ -667,17 +635,17 @@ if __name__ == '__main__':
 	rew = []
 	colli = []
 
-	actions = {}
-
+	actions = {i: env.action_space.sample() for i in range(N)}
 	for i in range(N):
 		mask = env.get_action_mask(i)
+		if not mask[actions[i]]:
+			actions[i] = np.random.choice(np.arange(env.env_config['number_of_actions']), p=mask.astype(int) / np.sum(mask))
 
 	while not dones['__all__']:
 
 		print(""" ############################################################### """)
 		print("Action: ", actions)
 
-		actions = {i: env.action_space.sample() for i in range(N)}
 		states, rewards, dones, infos = env.step({i: actions[i] for i in dones.keys() if (not dones[i]) and i != '__all__'})
 
 		for i in range(N):
@@ -687,7 +655,7 @@ if __name__ == '__main__':
 
 		H.append(list(100 * env.individual_uncertainty_decrement / env.uncertainty_0))
 		reg.append(list(env.last_measurement_values))
-		rew.append(list(100 * env.individual_uncertainty_decrement * (env.last_measurement_values) / env.uncertainty_0))
+		rew.append(list(100 * env.individual_uncertainty_decrement * (1.0 + env.last_measurement_values) / env.uncertainty_0))
 		colli.append(list(env.number_of_collisions))
 
 
@@ -700,6 +668,7 @@ if __name__ == '__main__':
 		env.render()
 
 	print("Finished!")
+
 	plt.show(block=True)
 
 	with plt.style.context('seaborn-whitegrid'):

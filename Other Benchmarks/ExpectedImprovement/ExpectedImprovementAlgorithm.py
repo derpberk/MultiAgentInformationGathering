@@ -19,7 +19,7 @@ from ShekelGroundTruth import Shekel
 from OilSpillEnvironment import OilSpill
 from FireFront import WildfireSimulator
 
-gt = WildfireSimulator
+gt = Shekel
 gt_config_file = gt.sim_config_template
 gt_config_file['navigation_map'] = navigation_map
 
@@ -31,7 +31,7 @@ env_config = {
 			'target_threshold': 0.5,
 			'ground_truth': np.random.rand(50, 50),
 			'measurement_size': np.array([0, 0]),
-			'max_travel_distance': 50,
+			'max_travel_distance': 100,
 		},
 		'number_of_vehicles': N,
 		'initial_positions': np.array([[15, 19],
@@ -45,7 +45,7 @@ env_config = {
 	'max_measurement_distance': 6,
 	'measurement_distance': 3,
 	'number_of_actions': 8,
-	'kernel_length_scale': (2.5, 2.5, 50),
+	'kernel_length_scale': (3.5, 3.5, 50),
 	'kernel_length_scale_bounds': ((0.1, 10), (0.1, 10), (0.001, 100)),
 	'random_benchmark': True,
 	'observation_type': 'visual',
@@ -131,10 +131,10 @@ env.eval()
 
 # Complimentary surrogate model
 
-gp = GaussianProcessRegressor(kernel=RBF(length_scale=15.0, length_scale_bounds=(2.0, 100.0)), alpha=0.001)
+gp = GaussianProcessRegressor(kernel=RBF(length_scale=3.5, length_scale_bounds=(0.1, 100.0)), alpha=0.001)
 
 # Evaluate for 10 scenarios #
-for run in range(30):
+for run in range(20):
 
 	# Reset flags
 	t, R, done_flag = 0, 0, False
@@ -183,7 +183,7 @@ for run in range(30):
 
 		t += 1
 
-		env.render()
+		# env.render()
 
 evaluator.register_experiment()
 paths.register_experiment()

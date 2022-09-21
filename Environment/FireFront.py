@@ -193,12 +193,12 @@ class WildfireSimulator(GroundTruth):
 
 		return self.ground_truth_field
 
-	def read(self, pos=None):
+	def read(self, position=None):
 
-		if pos is None:
+		if position is None:
 			return self.ground_truth_field
 		else:
-			return self.ground_truth_field[pos[0], pos[1]]
+			return self.ground_truth_field[int(position[0]), int(position[1])]
 
 
 if __name__ == '__main__':
