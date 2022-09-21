@@ -10,6 +10,10 @@ from sklearn.metrics import mean_squared_error
 from Environment.IGEnvironments import InformationGatheringEnv
 from Evaluation.Utils.metrics_wrapper import MetricsDataCreator
 
+from ShekelGroundTruth import Shekel
+from OilSpillEnvironment import OilSpill
+from FireFront import WildfireSimulator
+
 
 """ Initialize Ray """
 ray.init()
@@ -18,44 +22,22 @@ ray.init()
 config = DEFAULT_CONFIG.copy()
 
 """ Environment configuration"""
-navigation_map = np.genfromtxt('../Environment/wesslinger_map.txt')
+# The scenario
+navigation_map = np.genfromtxt('./wesslinger_map.txt')
+# Number of agents
+# Number of agents
 N = 4
-
-same_evaluation_scenario = False
-env_config = {
-	'fleet_configuration': {
-		'vehicle_configuration': {
-			'dt': 0.1,
-			'navigation_map': navigation_map,
-			'target_threshold': 0.5,
-			'ground_truth': np.random.rand(50, 50),
-			'measurement_size': np.array([0, 0]),
-			'max_travel_distance': 100,
-		},
-		'number_of_vehicles': N,
-		'initial_positions': np.array([[15, 19],
-		                               [13, 19],
-		                               [18, 19],
-		                               [15, 22]])
-	},
-	'movement_type': 'DIRECTIONAL',
-	'navigation_map': navigation_map,
-	'dynamic': 'Shekel',
-	'min_measurement_distance': 3,
-	'max_measurement_distance': 6,
-	'measurement_distance': 2,
-	'number_of_actions': 8,
-	'kernel_length_scale': 2,
-	'random_benchmark': True,
-	'observation_type': 'visual',
-	'max_collisions': 10,
-	'eval_mode': True,
-	'seed': 10,
-	'reward_type': 'improvement',
-}
-
-eval_env_config = env_config.copy()
-eval_env_config['eval_mode'] = True
+# Set up the Ground Truth #
+gt_config_file = Shekel.sim_config_template
+gt_config_file['navigation_map'] = navigation_map
+# S
+env_config = InformationGatheringEnv.default_env_config
+env_config['ground_truth'] = Shekel
+env_config['ground_truth_config'] = gt_config_file
+env_config['navigation_map'] = navigation_map
+env_config['fleet_configuration']['number_of_vehicles'] = N
+env_config['full_observable'] = True
+env_config['reward_type'] = 'improvement'
 
 
 """ Set the configuration for the training """
@@ -79,9 +61,9 @@ config = {
 
 	# ===== RESOURCES ===== #
 	# Number of parallel workers for sampling
-	"num_workers": 2,
+	"num_workers": 1,
 	# Number of workers for training
-	"evaluation_num_workers": 1,
+	"evaluation_num_workers": 0,
 	"num_gpus": 1,
 	"num_cpus_per_worker": 1,
 	"num_envs_per_worker": 1,
@@ -101,7 +83,7 @@ config = {
 		# Parameters for the Exploration class' constructor:
 		"initial_epsilon": 1.0,
 		"final_epsilon": 0.05,
-		"epsilon_timesteps": 1500000  # Timesteps over which to anneal epsilon.
+		"epsilon_timesteps": 3500000  # Timesteps over which to anneal epsilon.
 
 	},
 
@@ -114,7 +96,7 @@ config = {
 		"type": "MultiAgentPrioritizedReplayBuffer",
 		# Size of the replay buffer. Note that if async_updates is set,
 		# then each worker will have a replay buffer of this size.
-		"capacity": 50000,
+		"capacity": 100000,
 		"prioritized_replay_alpha": 0.6,
 		# Beta parameter for sampling from prioritized replay buffer.
 		"prioritized_replay_beta": 0.4,
@@ -131,7 +113,7 @@ config = {
 	# Number of atoms for representing the distribution of return. When
 	# this is greater than 1, distributional Q-learning is used.
 	# the discrete supports are bounded by v_min and v_max
-	"num_atoms": 1,
+	"num_atoms": 41,
 	"v_min": -10.0,
 	"v_max": 10.0,
 	# Whether to use noisy network
@@ -187,9 +169,7 @@ trainer.restore('/Users/samuel/MultiAgentInformationGathering/Training/runs/chec
 evaluator = MetricsDataCreator(metrics_names=['Mean Reward',
                                               'Average Uncertainty',
                                               'Mean regret',
-                                              'Model Error',
-                                              'Peak position error',
-                                              'Peak value error'],
+                                              'Model Error'],
                                algorithm_name='DRL',
                                experiment_name='DeepReinforcementLearningResults')
 
@@ -236,9 +216,7 @@ for run in range(20):
 		metrics = [info['metrics']['accumulated_reward'],
 		           info['metrics']['uncertainty'],
 		           info['metrics']['instant_regret'],
-		           mse,
-		           info['metrics']['peak_location_error'],
-		           info['metrics']['peak_value_error'],
+		           mse
 		           ]
 
 		evaluator.register_step(run_num=run, step=t, metrics=[*metrics])

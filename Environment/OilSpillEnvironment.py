@@ -192,7 +192,7 @@ class OilSpill(GroundTruth):
 
 if __name__ == '__main__':
 
-	my_map = np.genfromtxt('./wesslinger_map.txt')
+	my_map = np.ones((100,100))
 
 	config_dict = OilSpill.sim_config_template
 	config_dict['navigation_map'] = my_map

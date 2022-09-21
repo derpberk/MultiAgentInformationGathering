@@ -19,11 +19,11 @@ class WildfireSimulator(GroundTruth):
 		"width": 100,
 		"height": 100,
 		"init_fire_mode": "central",  # Options random, central
-		"init_hotspots": 2,  # Select the number of hotspots
+		"init_hotspots": 1,  # Select the number of hotspots
 		"seed": 9875123,
-		"max_ignition_distance": 5,
+		"max_ignition_distance": 3,
 		"ignition_factor": 0.005/2,
-		"wind_type": 'random',  # Options None, user, random
+		"wind_type": 'None',  # Options None, user, random
 		"wind_speed": 0,
 		"wind_angle": -20,
 		"initial_time": 100,
@@ -178,7 +178,7 @@ class WildfireSimulator(GroundTruth):
 
 		if self.fig is None:
 			self.fig, self.ax = plt.subplots(1, 1)
-			self.drawing = self.ax.imshow(self.ground_truth_field, vmin=0, vmax=5, cmap='hot')
+			self.drawing = self.ax.imshow(self.ground_truth_field, vmin=0, vmax=1, cmap='hot')
 		else:
 			self.drawing.set_data(self.ground_truth_field)
 
@@ -211,9 +211,10 @@ if __name__ == '__main__':
 
 	for _ in range(20):
 		sim.reset()
-		for i in range(30):
+		before = time.process_time()
+		for i in range(100):
 			sim.step()
-			sim.render()
+			#sim.render()
 		print(time.process_time() - before)
 
 

@@ -9,24 +9,24 @@ from typing import Union
 from random import shuffle
 import matplotlib.pyplot as plt
 
+
 # noinspection GrazieInspection
 class InformationGatheringEnv(MultiAgentEnv):
-
-	default_env_config =  {
+	default_env_config = {
 		'fleet_configuration': {
 			'vehicle_configuration': {
 				'dt': 0.05,
-				'navigation_map': np.ones((50, 50)),
+				'navigation_map': None,
 				'target_threshold': 0.2,
-				'ground_truth': np.random.rand(50, 50),
+				'ground_truth': None,
 				'measurement_size': np.array([0, 0]),
 				'max_travel_distance': 50,
 			},
 			'number_of_vehicles': 4,
 			'initial_positions': np.array([[15, 19],
-			                               [13, 19],
-			                               [18, 19],
-			                               [15, 22]])
+										   [13, 19],
+										   [18, 19],
+										   [15, 22]])
 		},
 		'movement_type': 'DIRECTIONAL',
 		'navigation_map': np.ones((50, 50)),
@@ -46,6 +46,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 		'ground_truth': None,
 		'ground_truth_config': None,
 		'temporal': False,
+		'full_observable': False,
 	}
 
 	def __init__(self, env_config: dict):
@@ -55,6 +56,9 @@ class InformationGatheringEnv(MultiAgentEnv):
 		# Environment configuration dictionary
 		self.env_config = env_config
 		self.env_config['fleet_configuration']['navigation_map'] = self.env_config['navigation_map']
+		if self.env_config['fleet_configuration']['vehicle_configuration']['navigation_map'] is None:
+			self.env_config['fleet_configuration']['vehicle_configuration']['navigation_map'] = self.env_config[
+				'navigation_map']
 
 		# Create a fleet of N vehicles #
 		self.fleet = Fleet(fleet_configuration=self.env_config['fleet_configuration'])
@@ -67,6 +71,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		# Define the observation space and the action space #
 		self.observation_type = self.env_config['observation_type']
+		self.full_observable = self.env_config['full_observable']
 
 		number_of_channels = 4 if self.env_config['reward_type'] == 'uncertainty' else 5
 		if self.observation_type == 'visual':
@@ -76,11 +81,13 @@ class InformationGatheringEnv(MultiAgentEnv):
 			# - The other vehicles positions on the map
 			# - The mu of the model
 			# - The uncertainty of the model
-			self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(number_of_channels, *self.env_config['navigation_map'].shape))
+			self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(
+				number_of_channels, *self.env_config['navigation_map'].shape))
 		elif self.observation_type == 'hybrid':
 			# The hybrid state is its position [x,y] and 3 images [fleet positions, mean-model, uncertainty] #
 			self.observation_space = gym.spaces.Dict(
-				{'visual_state': gym.spaces.Box(low=-1.0, high=1.0, shape=(number_of_channels - 1, *self.env_config['navigation_map'].shape)),
+				{'visual_state': gym.spaces.Box(low=-1.0, high=1.0, shape=(
+					number_of_channels - 1, *self.env_config['navigation_map'].shape)),
 				 'odometry': gym.spaces.Box(low=-1.0, high=1.0, shape=(2,))})
 		else:
 			raise NotImplementedError('This observation type is not defined. Pleas choose between: visual / hybrid')
@@ -93,7 +100,8 @@ class InformationGatheringEnv(MultiAgentEnv):
 			# This action is defined with the direction and the distance to move (both normalized between -1 and 1) #
 			self.action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(2,))
 		else:
-			raise NotImplementedError('This movement type is not defined. Pleas choose between: DIRECTIONAL / DIRECTIONAL+DISTANCE')
+			raise NotImplementedError(
+				'This movement type is not defined. Pleas choose between: DIRECTIONAL / DIRECTIONAL+DISTANCE')
 
 		self.measurements = None  # Measurements of the environment (Usually a dictionary)
 		self.resetted = False  # Flag to check if the environment has been resetted #
@@ -117,12 +125,17 @@ class InformationGatheringEnv(MultiAgentEnv):
 		# ---- Parameters of the model (Gaussian Process) ---- #
 		# Kernel for model-conditioning #
 		if env_config['temporal']:
-			self.kernel = RBF(length_scale=env_config['kernel_length_scale'], length_scale_bounds=env_config['kernel_length_scale_bounds'])
+			self.kernel = RBF(length_scale=env_config['kernel_length_scale'],
+							  length_scale_bounds=env_config['kernel_length_scale_bounds'])
 		else:
-			self.kernel = RBF(length_scale=env_config['kernel_length_scale'][0], length_scale_bounds=env_config['kernel_length_scale_bounds'][0])
+			self.kernel = RBF(length_scale=env_config['kernel_length_scale'][0],
+							  length_scale_bounds=env_config['kernel_length_scale_bounds'][0])
 
 		# The Gaussian Process #
-		self.GaussianProcess = GaussianProcessRegressor(kernel=self.kernel, alpha=0.01, optimizer=None, n_restarts_optimizer=10)
+		self.GaussianProcess = GaussianProcessRegressor(kernel=self.kernel,
+														alpha=0.01,
+														optimizer=None,
+														n_restarts_optimizer=10)
 		# The list of measured values (y in GP)
 		self.measured_values = None
 		# The list of measured positions (x in GP)
@@ -137,10 +150,12 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		# Array of the last measurements of every agent (to compute the reward) #
 		self.last_measurement_values = np.array([0.0 for _ in range(self.number_of_agents)])
+
 		# The contribution of every agent to the uncertainty decrement (to compute the reward)#
 		self.intermediate_uncertainty_values = np.ones(shape=(len(self.visitable_positions),))
 		self.individual_uncertainty_decrement = np.array([0.0 for _ in range(self.number_of_agents)])
 		self.individual_mse = np.array([0.0 for _ in range(self.number_of_agents)])
+
 		# The error of the model #
 		self.mse = None
 		self.mse_ant = None
@@ -225,9 +240,9 @@ class InformationGatheringEnv(MultiAgentEnv):
 		else:
 			new_measurements = [new_measurements[i] for i in agents_ids]
 
-		shufled_list = list(zip(agents_ids, range(len(agents_ids))))
-		shuffle(shufled_list)
-		for agent_id, measurement_id in shufled_list:
+		shuffled_list = list(zip(agents_ids, range(len(agents_ids))))
+		shuffle(shuffled_list)
+		for agent_id, measurement_id in shuffled_list:
 			# Sequentially update the model for each agent. #
 
 			# Append the data to the list of measurement locations and values #
@@ -240,30 +255,36 @@ class InformationGatheringEnv(MultiAgentEnv):
 					self.measurements_time = np.atleast_2d(np.asarray([new_measurements[measurement_id]['time']]))
 
 			else:
-				self.measured_locations = np.vstack((self.measured_locations, np.asarray([new_measurements[measurement_id]['position']])))
-				self.measured_values = np.hstack((self.measured_values, np.asarray([np.nanmean(new_measurements[measurement_id]['data'])])))
+				self.measured_locations = np.vstack(
+					(self.measured_locations, np.asarray([new_measurements[measurement_id]['position']])))
+				self.measured_values = np.hstack(
+					(self.measured_values, np.asarray([np.nanmean(new_measurements[measurement_id]['data'])])))
 				# If the mission is of a temporal-patrolling kind append also the time of the sample #
 				if self.env_config['temporal']:
-					self.measurements_time = np.vstack((self.measurements_time, np.asarray([new_measurements[measurement_id]['time']])))
+					self.measurements_time = np.vstack(
+						(self.measurements_time, np.asarray([new_measurements[measurement_id]['time']])))
 
 			# Store this last measured value #
 			self.last_measurement_values[agent_id] = self.measured_values[-1]
 
 			# Fit the gaussian process #
 			if self.env_config['temporal']:
-				self.GaussianProcess.fit(np.hstack((self.measured_locations, self.measurements_time)), self.measured_values)
+				self.GaussianProcess.fit(np.hstack((self.measured_locations, self.measurements_time)),
+										 self.measured_values)
 				# Compute the mean and the std values for all the visitable positions #
 				mu_array, sigma_array = self.GaussianProcess.predict(np.hstack((self.visitable_positions[:],
-				                                                               np.full((len(self.visitable_positions), 1),
-				                                                                       np.max(self.measurements_time)))),
-				                                                     return_std=True)
+																				np.full(
+																					(len(self.visitable_positions), 1),
+																					np.max(self.measurements_time)))),
+																	 return_std=True)
 			else:
 				self.GaussianProcess.fit(self.measured_locations, self.measured_values)
 				# Compute the mean and the std values for all the visitable positions #
 				mu_array, sigma_array = self.GaussianProcess.predict(self.visitable_positions[:], return_std=True)
 
 			# Compute the new mean error #
-			self.mse = np.sum(np.abs(self.ground_truth.ground_truth_field[self.visitable_positions[:, 0], self.visitable_positions[:, 1]] - mu_array))
+			self.mse = np.sum(np.abs(self.ground_truth.ground_truth_field[
+										 self.visitable_positions[:, 0], self.visitable_positions[:, 1]] - mu_array))
 			self.individual_mse[agent_id] = self.mse - self.mse_ant
 			self.mse_ant = self.mse
 
@@ -274,11 +295,11 @@ class InformationGatheringEnv(MultiAgentEnv):
 		# Conform the map of the surrogate model for the state #
 		mu_map = np.copy(self.env_config['navigation_map'])
 		mu_map[self.visitable_positions[:, 0],
-		       self.visitable_positions[:, 1]] = mu_array
+			   self.visitable_positions[:, 1]] = mu_array
 
 		uncertainty_map = np.copy(self.env_config['navigation_map'])
 		uncertainty_map[self.visitable_positions[:, 0],
-		                self.visitable_positions[:, 1]] = sigma_array
+						self.visitable_positions[:, 1]] = sigma_array
 
 		return mu_map, uncertainty_map
 
@@ -349,6 +370,10 @@ class InformationGatheringEnv(MultiAgentEnv):
 			if self.fleet.fleet_state[agent_id] != FleetState.FINISHED:
 				other_agents_map[agent_position[0], agent_position[1]] = 1.0
 
+		# WARNING: Prepare the model observation depending on the full-visual condition #
+		# This is only for comparing the performance with an idealistic scenario where we have all the model #
+		mu = self.mu if self.full_observable is False else self.ground_truth.ground_truth_field
+
 		if self.observation_type == 'visual':
 
 			# First channel: navigation/obstacle map
@@ -366,34 +391,34 @@ class InformationGatheringEnv(MultiAgentEnv):
 			# Note that the mu and sigma maps are already normalized to [0, 1]
 			if self.env_config['reward_type'] == 'uncertainty':
 				return np.concatenate((nav_map[np.newaxis],
-				                       position_map[np.newaxis],
-				                       other_agents_map[np.newaxis],
-				                       np.clip(self.uncertainty[np.newaxis], a_min=-1.0, a_max=1.0)))
+									   position_map[np.newaxis],
+									   other_agents_map[np.newaxis],
+									   np.clip(self.uncertainty[np.newaxis], a_min=-1.0, a_max=1.0)))
 			else:
 				return np.concatenate((nav_map[np.newaxis],
-				                       position_map[np.newaxis],
-				                       other_agents_map[np.newaxis],
-				                       np.clip(self.mu[np.newaxis], a_min=-1.0, a_max=1.0),
-				                       np.clip(self.uncertainty[np.newaxis], a_min=-1.0, a_max=1.0)))
+									   position_map[np.newaxis],
+									   other_agents_map[np.newaxis],
+									   np.clip(mu[np.newaxis], a_min=-1.0, a_max=1.0),
+									   np.clip(self.uncertainty[np.newaxis], a_min=-1.0, a_max=1.0)))
 
 		elif self.observation_type == 'hybrid':
 
 			if self.env_config['reward_type'] == 'uncertainty':
 
 				return {'visual_state': np.concatenate((np.clip(self.uncertainty[np.newaxis], a_min=-1.0, a_max=1.0),
-				                                        other_agents_map[np.newaxis])),
-				        'odometry': self.fleet.vehicles[agent_indx].position / self.env_config['navigation_map'].shape}
+														other_agents_map[np.newaxis])),
+						'odometry': self.fleet.vehicles[agent_indx].position / self.env_config['navigation_map'].shape}
 			else:
-				return {'visual_state': np.concatenate((np.clip(self.mu[np.newaxis], a_min=-1.0, a_max=1.0),
-				                                        np.clip(self.uncertainty[np.newaxis], a_min=-1.0, a_max=1.0),
-				                                        other_agents_map[np.newaxis])),
-				        'odometry': self.fleet.vehicles[agent_indx].position / self.env_config['navigation_map'].shape}
+				return {'visual_state': np.concatenate((np.clip(mu[np.newaxis], a_min=-1.0, a_max=1.0),
+														np.clip(self.uncertainty[np.newaxis], a_min=-1.0, a_max=1.0),
+														other_agents_map[np.newaxis])),
+						'odometry': self.fleet.vehicles[agent_indx].position / self.env_config['navigation_map'].shape}
 
 	def update_vehicles_ground_truths(self):
 		""" Setter to update the ground truth of the vehicles. """
 
+		self.ground_truth.step()
 		for vehicle in self.fleet.vehicles:
-			self.ground_truth.step()
 			vehicle.ground_truth = self.ground_truth.ground_truth_field
 
 	def action_dict_to_targets(self, a_dict: dict) -> np.ndarray:
@@ -412,17 +437,17 @@ class InformationGatheringEnv(MultiAgentEnv):
 			# Transform discrete actions to displacement
 			angles = np.asarray([2 * np.pi * action / self.env_config['number_of_actions'] for action in a_dict.values()])
 			# Transform the displacement to positions #
-			target_positions = self.fleet.get_positions()[target_agents] + self.env_config['measurement_distance'] * np.column_stack(
-				(np.cos(angles), np.sin(angles)))
+			target_positions = self.fleet.get_positions()[target_agents] + self.env_config['measurement_distance'] * np.column_stack((np.cos(angles), np.sin(angles)))
 
 		elif self.env_config['movement_type'] == 'DIRECTIONAL_DISTANCE':
 			# Transform the continuous actions into displacement #
-			actions = np.array([action for action in a_dict.values()])
-			angles = np.pi * actions[:, 0]
-			distances = self.linear_min_max(self.env_config['min_measurement_distance'], self.env_config['max_measurement_distance'], -1, 1,
-			                                actions[:, 1])
-			target_positions = self.fleet.get_positions()[target_agents] + distances.reshape(-1, 1) * np.column_stack(
-				(np.cos(angles), np.sin(angles)))
+			acts = np.array([action for action in a_dict.values()])
+			angles = np.pi * acts[:, 0]
+			distances = self.linear_min_max(self.env_config['min_measurement_distance'],
+											self.env_config['max_measurement_distance'], -1, 1,
+											acts[:, 1])
+			target_positions = self.fleet.get_positions()[target_agents] + distances.reshape(-1, 1) * np.column_stack((np.cos(angles), np.sin(angles)))
+
 		else:
 			raise NotImplementedError("Invalid movement type")
 
@@ -443,14 +468,16 @@ class InformationGatheringEnv(MultiAgentEnv):
 		"""
 
 		metric_dict = {'error': self.mse,
-		               'accumulated_reward': self.acc_reward,
-		               'uncertainty': self.uncertainty[self.visitable_positions[:, 0], self.visitable_positions[:, 1]].mean(),
-		               'instant_regret': 1.0 - self.last_measurement_values.mean()
-		               }
+					   'accumulated_reward': self.acc_reward,
+					   'uncertainty': self.uncertainty[
+						   self.visitable_positions[:, 0], self.visitable_positions[:, 1]].mean(),
+					   'instant_regret': 1.0 - self.last_measurement_values.mean()
+					   }
 
 		if mission_type == 'MaximaSearch':
 			pass
 			# TODO: Implement the metrics
+
 		else:
 			raise NotImplementedError("This is not a valid mission type:")
 
@@ -486,9 +513,8 @@ class InformationGatheringEnv(MultiAgentEnv):
 		new_measurements = None
 
 		if self.env_config['dynamic']:
-			self.ground_truth.step()
 			self.update_vehicles_ground_truths()
-			# TODO: Implement a method to update depending on the time that has passed since the last time
+		# TODO: Implement a method to update depending on the time that has passed since the last time
 
 		if self.env_config['movement_type'] == 'DIRECTIONAL':
 			# Update until ALL vehicles have arrived to their goals #
@@ -500,7 +526,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		# Retrieve the ids of the agents that must return a state and a reward #
 		ready_agents_ids = [i for i, veh_state in enumerate(self.fleet.fleet_state) if
-		                    veh_state in [FleetState.WAITING_FOR_ACTION, FleetState.COLLIDED, FleetState.LAST_ACTION]]
+							veh_state in [FleetState.WAITING_FOR_ACTION, FleetState.COLLIDED, FleetState.LAST_ACTION]]
 
 		# Compute those agents that collided and add 1 collision to their counter #
 		collision_array = [s == FleetState.COLLIDED for s in self.fleet.fleet_state]
@@ -508,10 +534,12 @@ class InformationGatheringEnv(MultiAgentEnv):
 		self.number_of_collisions += np.array(collision_array).astype(int)
 		# For every agent, change its state to final if its number of collisions is equal to the maximum number of collisions #
 		for agent_id in self.agents_ids:
-			if self.number_of_collisions[agent_id] >= self.max_collisions and self.fleet.fleet_state[agent_id] != FleetState.FINISHED:
+			if self.number_of_collisions[agent_id] >= self.max_collisions and self.fleet.fleet_state[
+				agent_id] != FleetState.FINISHED:
 				self.fleet.set_state(agent_id, FleetState.LAST_ACTION)
 
-		done_agents_vals = [self.fleet.fleet_state[agents_id] == FleetState.LAST_ACTION for agents_id in ready_agents_ids]
+		done_agents_vals = [self.fleet.fleet_state[agents_id] == FleetState.LAST_ACTION for agents_id in
+							ready_agents_ids]
 
 		# Update the model
 		self.mu, self.uncertainty = self.update_model(new_measurements=new_measurements, agents_ids=ready_agents_ids)
@@ -527,7 +555,8 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		# Compute if the agents have finished #
 		self.dones = {i: val for i, val in zip(ready_agents_ids, done_agents_vals)}
-		self.dones['__all__'] = all([veh_state in [FleetState.LAST_ACTION, FleetState.FINISHED] for veh_state in self.fleet.fleet_state])
+		self.dones['__all__'] = all(
+			[veh_state in [FleetState.LAST_ACTION, FleetState.FINISHED] for veh_state in self.fleet.fleet_state])
 
 		# Accumulate the reward #
 		self.acc_reward += np.asarray([val for val in self.rewards.values()]).sum()
@@ -553,13 +582,12 @@ class InformationGatheringEnv(MultiAgentEnv):
 			if self.observation_type == 'visual':
 				self.s1 = self.axs[1].imshow(np.sum([self.individual_state(i)[1] for i in range(self.number_of_agents)], axis=0), cmap='gray')
 			elif self.observation_type == 'hybrid':
-				self.s1 = self.axs[1].imshow(np.sum([self.individual_state(i)['visual_state'][2] for i in range(self.number_of_agents)], axis=0),
-				                             cmap='gray')
+				self.s1 = self.axs[1].imshow(np.sum([self.individual_state(i)['visual_state'][2] for i in range(self.number_of_agents)], axis=0),cmap='gray')
 			else:
 				raise NotImplementedError('Cannot render with an invalid observation type.')
 
 			self.axs[2].set_title('Estimated model')
-			self.s2 = self.axs[2].imshow(self.mu, cmap='jet', vmin=0.0, vmax=1.0)
+			self.s2 = self.axs[2].imshow(self.individual_state(0)[3], cmap='jet', vmin=0.0, vmax=1.0)
 
 			self.axs[3].set_title('Uncertainty')
 			self.s3 = self.axs[3].imshow(self.uncertainty, cmap='gray', vmin=0.0, vmax=1.0)
@@ -572,9 +600,10 @@ class InformationGatheringEnv(MultiAgentEnv):
 			if self.observation_type == 'visual':
 				self.s1.set_data(np.sum([self.individual_state(i)[1] for i in range(self.number_of_agents)], axis=0))
 			elif self.observation_type == 'hybrid':
-				self.s1.set_data(np.sum([self.individual_state(i)['visual_state'][2] for i in range(self.number_of_agents)], axis=0))
+				self.s1.set_data(
+					np.sum([self.individual_state(i)['visual_state'][2] for i in range(self.number_of_agents)], axis=0))
 
-			self.s2.set_data(self.mu)
+			self.s2.set_data(self.individual_state(0)[3])
 			self.s3.set_data(self.uncertainty)
 			self.s4.set_data(self.ground_truth.ground_truth_field)
 
@@ -594,10 +623,12 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		"""
 
-		assert self.env_config['movement_type'] == 'DIRECTIONAL', 'This function is only valid for DIRECTIONAL movement.'
+		assert self.env_config[
+				   'movement_type'] == 'DIRECTIONAL', 'This function is only valid for DIRECTIONAL movement.'
 
 		angles = 2 * np.pi * np.arange(0, self.env_config['number_of_actions']) / self.env_config['number_of_actions']
-		possible_points = self.fleet.vehicles[ind].position + 1.05 * self.env_config['measurement_distance'] * np.column_stack(
+		possible_points = self.fleet.vehicles[ind].position + 1.05 * self.env_config[
+			'measurement_distance'] * np.column_stack(
 			(np.cos(angles), np.sin(angles)))
 
 		return np.asarray(list(map(self.fleet.vehicles[ind].is_the_position_valid, possible_points)))
@@ -610,17 +641,22 @@ if __name__ == '__main__':
 	from OilSpillEnvironment import OilSpill
 	from FireFront import WildfireSimulator
 
+	# The scenario
 	navigation_map = np.genfromtxt('./wesslinger_map.txt')
-
+	# Number of agents
 	N = 4
-
+	# Set up the Ground Truth #
 	gt_config_file = Shekel.sim_config_template
 	gt_config_file['navigation_map'] = navigation_map
+
+	# S
 	env_config = InformationGatheringEnv.default_env_config
 	env_config['ground_truth'] = Shekel
 	env_config['ground_truth_config'] = gt_config_file
 	env_config['navigation_map'] = navigation_map
-	env_config['fleet_configuration']['vehicle_configuration']['navigation_map'] = navigation_map
+	env_config['fleet_configuration']['number_of_vehicles'] = N
+	env_config['full_observable'] = True
+	env_config['reward_type'] = 'improvement'
 
 	# Create the environment #
 	env = InformationGatheringEnv(env_config=env_config)
@@ -636,28 +672,32 @@ if __name__ == '__main__':
 	colli = []
 
 	actions = {i: env.action_space.sample() for i in range(N)}
+
 	for i in range(N):
 		mask = env.get_action_mask(i)
 		if not mask[actions[i]]:
-			actions[i] = np.random.choice(np.arange(env.env_config['number_of_actions']), p=mask.astype(int) / np.sum(mask))
+			actions[i] = np.random.choice(np.arange(env.env_config['number_of_actions']),
+										  p=mask.astype(int) / np.sum(mask))
 
 	while not dones['__all__']:
 
 		print(""" ############################################################### """)
 		print("Action: ", actions)
 
-		states, rewards, dones, infos = env.step({i: actions[i] for i in dones.keys() if (not dones[i]) and i != '__all__'})
+		states, rewards, dones, infos = env.step(
+			{i: actions[i] for i in dones.keys() if (not dones[i]) and i != '__all__'})
 
 		for i in range(N):
 			mask = env.get_action_mask(i)
 			if not mask[actions[i]]:
-				actions[i] = np.random.choice(np.arange(env.env_config['number_of_actions']), p=mask.astype(int) / np.sum(mask))
+				actions[i] = np.random.choice(np.arange(env.env_config['number_of_actions']),
+											  p=mask.astype(int) / np.sum(mask))
 
 		H.append(list(100 * env.individual_uncertainty_decrement / env.uncertainty_0))
 		reg.append(list(env.last_measurement_values))
-		rew.append(list(100 * env.individual_uncertainty_decrement * (1.0 + env.last_measurement_values) / env.uncertainty_0))
+		rew.append(
+			list(100 * env.individual_uncertainty_decrement * (1.0 + env.last_measurement_values) / env.uncertainty_0))
 		colli.append(list(env.number_of_collisions))
-
 
 		print("States: ", states.keys())
 		print("Rewards: ", rewards)

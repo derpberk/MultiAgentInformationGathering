@@ -5,12 +5,9 @@ from Environment.IGEnvironments import InformationGatheringEnv
 import numpy as np
 from Model.rllib_models import FullVisualQModel
 
-from typing import Dict, Tuple
-from ray.rllib.agents.callbacks import DefaultCallbacks
-from ray.rllib.env import BaseEnv
-from ray.rllib.evaluation import Episode, RolloutWorker
-from ray.rllib.policy import Policy
-
+from ShekelGroundTruth import Shekel
+from OilSpillEnvironment import OilSpill
+from FireFront import WildfireSimulator
 
 """ Initialize Ray """
 ray.init()
@@ -21,55 +18,20 @@ config = DEFAULT_CONFIG.copy()
 """ Environment configuration"""
 navigation_map = np.genfromtxt('../../Environment/wesslinger_map.txt')
 
+# Number of agents
 N = 4
-
-from ShekelGroundTruth import Shekel
-from OilSpillEnvironment import OilSpill
-from FireFront import WildfireSimulator
-
-gt = Shekel
-gt_config_file = gt.sim_config_template
+# Set up the Ground Truth #
+gt_config_file = Shekel.sim_config_template
 gt_config_file['navigation_map'] = navigation_map
 
-
-env_config = {
-	'fleet_configuration': {
-		'vehicle_configuration': {
-			'dt': 0.1,
-			'navigation_map': navigation_map,
-			'target_threshold': 0.5,
-			'ground_truth': np.random.rand(50, 50),
-			'measurement_size': np.array([0, 0]),
-			'max_travel_distance': 50,
-		},
-		'number_of_vehicles': N,
-		'initial_positions': np.array([[15, 19],
-		                               [13, 19],
-		                               [18, 19],
-		                               [15, 22]])
-	},
-	'movement_type': 'DIRECTIONAL',
-	'navigation_map': navigation_map,
-	'min_measurement_distance': 3,
-	'max_measurement_distance': 6,
-	'measurement_distance': 3,
-	'number_of_actions': 8,
-	'kernel_length_scale': (2.5, 2.5, 50),
-	'kernel_length_scale_bounds': ((0.1, 10), (0.1, 10), (0.001, 100)),
-	'random_benchmark': True,
-	'observation_type': 'visual',
-	'max_collisions': 10,
-	'eval_mode': True,
-	'seed': 23,
-	'reward_type': 'improvement',
-	'dynamic': True,
-	'ground_truth': gt,
-	'ground_truth_config': gt_config_file,
-	'temporal': False,
-}
-
-eval_env_config = env_config.copy()
-eval_env_config['eval_mode'] = True
+# S
+env_config = InformationGatheringEnv.default_env_config
+env_config['ground_truth'] = Shekel
+env_config['ground_truth_config'] = gt_config_file
+env_config['navigation_map'] = navigation_map
+env_config['fleet_configuration']['number_of_vehicles'] = N
+env_config['full_observable'] = True
+env_config['reward_type'] = 'improvement'
 
 
 """ Set the configuration for the training """
@@ -95,7 +57,7 @@ config = {
 	# Number of parallel workers for sampling
 	"num_workers": 2,
 	# Number of workers for training
-	"evaluation_num_workers": 1,
+	"evaluation_num_workers": 0,
 	"num_gpus": 1,
 	"num_cpus_per_worker": 1,
 	"num_envs_per_worker": 1,
@@ -115,7 +77,7 @@ config = {
 		# Parameters for the Exploration class' constructor:
 		"initial_epsilon": 1.0,
 		"final_epsilon": 0.05,
-		"epsilon_timesteps": 1500000  # Timesteps over which to anneal epsilon.
+		"epsilon_timesteps": 3500000  # Timesteps over which to anneal epsilon.
 
 	},
 
@@ -128,7 +90,7 @@ config = {
 		"type": "MultiAgentPrioritizedReplayBuffer",
 		# Size of the replay buffer. Note that if async_updates is set,
 		# then each worker will have a replay buffer of this size.
-		"capacity": 50000,
+		"capacity": 100000,
 		"prioritized_replay_alpha": 0.6,
 		# Beta parameter for sampling from prioritized replay buffer.
 		"prioritized_replay_beta": 0.4,
@@ -145,7 +107,7 @@ config = {
 	# Number of atoms for representing the distribution of return. When
 	# this is greater than 1, distributional Q-learning is used.
 	# the discrete supports are bounded by v_min and v_max
-	"num_atoms": 1,
+	"num_atoms": 41,
 	"v_min": -10.0,
 	"v_max": 10.0,
 	# Whether to use noisy network
@@ -191,7 +153,7 @@ config = {
 
 """ Stop criterion """
 stop_criterion = {
-	"episodes_total": 50_000,
+	"episodes_total": 100_000,
 }
 
 # Create our RLlib Trainer.

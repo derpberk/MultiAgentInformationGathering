@@ -23,12 +23,12 @@ class GasSourceGT(GroundTruth):
 		self.ax = None
 		self.d = None
 
-		self.L = scipy.sparse.load_npz('laplace.npz')
-		self.Gx = scipy.sparse.load_npz('grad_x.npz')
-		self.Gy = scipy.sparse.load_npz('grad_y.npz')
+		self.L = scipy.sparse.load_npz('./GasSource/laplace.npz')
+		self.Gx = scipy.sparse.load_npz('./GasSource/grad_x.npz')
+		self.Gy = scipy.sparse.load_npz('./GasSource/grad_y.npz')
 
 		# load mesh
-		self.verts = np.load("vertices.npy")
+		self.verts = np.load('./GasSource/vertices.npy')
 		self.dim = self.verts.shape[0]
 
 		# find border
@@ -39,13 +39,13 @@ class GasSourceGT(GroundTruth):
 		self.R = diags(self.b)
 		self.r = np.zeros((self.dim, 1))
 
-		self.dt = 100.0
+		self.dt = 1000.0
 
 		self.f_ = np.zeros((self.dim, 1))
 		self.number_of_sources = None
 		self.source = None
 		self.wind_x, self.wind_y = None, None
-		self.kappa = 0
+		self.kappa = 0.005
 
 		self.triObj = Triangulation(self.verts[:, 0], self.verts[:, 1])
 
@@ -102,7 +102,7 @@ class GasSourceGT(GroundTruth):
 		X, Y = np.meshgrid(np.linspace(0, 1, 50), np.linspace(0, 1, 50),)
 		Z = fz(X, Y)
 
-		self.ground_truth_field = Z / 50.0
+		self.ground_truth_field = Z / (1e-6 + Z.max())
 
 	def render(self):
 
@@ -121,6 +121,15 @@ class GasSourceGT(GroundTruth):
 			self.step(True)
 
 		return self.ground_truth_field
+
+	def read(self, position=None):
+
+		if position is None:
+			return self.ground_truth_field
+		else:
+			return self.ground_truth_field[int(position[0]), int(position[1])]
+
+
 
 
 if __name__ == '__main__':

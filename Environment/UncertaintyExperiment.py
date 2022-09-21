@@ -5,6 +5,7 @@ from sklearn.gaussian_process.kernels import RBF, ConstantKernel, Matern
 from Environment.OilSpillEnvironment import OilSpill
 from Environment.ShekelGroundTruth import Shekel
 from Environment.FireFront import WildfireSimulator
+from Environment.GasSource.GasSourceGroundTruth import GasSourceGT
 from sklearn.metrics import mean_squared_error
 
 from mpl_toolkits.mplot3d import Axes3D
@@ -12,14 +13,13 @@ from mpl_toolkits.mplot3d import Axes3D
 
 max_distance = 3.0
 
-temporal = False
+temporal = True
 """ Gaussian Process Regressor """
 if temporal:
-    gp = GaussianProcessRegressor(kernel=Matern(length_scale=(3.5, 3.5, 60), length_scale_bounds=[(3.5, 3.5), (3.5, 3.5), (60, 60)]), optimizer=None, alpha=0.01)
+    gp = GaussianProcessRegressor(kernel=Matern(length_scale=(2.5, 2.5, 60), length_scale_bounds=[(3.5, 3.5), (3.5, 3.5), (60, 60)]), optimizer=None, alpha=0.001)
 
 else:
-    # gp = GaussianProcessRegressor(kernel=RBF(length_scale=3.5, length_scale_bounds=(0.1, 10.)), alpha=0.00001, n_restarts_optimizer=20, optimizer=None,)
-    gp = GaussianProcessRegressor(kernel=Matern(length_scale=3.5, length_scale_bounds=(0.1, 10.)), alpha=0.00001, n_restarts_optimizer=20, optimizer=None,)
+    gp = GaussianProcessRegressor(kernel=Matern(length_scale=3.5, length_scale_bounds=(0.1, 10.)), alpha=0.001, n_restarts_optimizer=20, optimizer=None,)
 
 
 config = WildfireSimulator.sim_config_template
@@ -27,7 +27,9 @@ config['navigation_map'] = np.ones((50, 50))
 config['init_time'] = 0
 
 gt = WildfireSimulator(config)
-gt.reset()
+gt.reset(True)
+gt.step()
+
 """ Compute Ground Truth """
 fig = plt.figure(constrained_layout=False)
 gs = fig.add_gridspec(nrows=2, ncols=3)
@@ -68,21 +70,29 @@ derr, = ax[3].plot(error, 'x-')
 
 ax[3].set_xlim((0, 100))
 ax[3].set_ylim((0, error[0]))
+ax[3].grid()
+ax[3].set_ylabel('Error RMSE')
+axt = ax[3].twinx()
+axt.set_ylabel('Uncertainty')
+
 
 H = sigma.sum()
 R = []
 Re = []
 He = []
+Ht = [H]
 
 H0 = sigma.sum()
 
+axt.set_ylim((0, sigma.mean()))
+du, = axt.plot(sigma.mean(), 'r-o')
 sigma_ant = sigma.copy()
 
 
 def get_measurement(gt_field, point, size, step):
 
-    x = np.linspace(point[0] - size, point[0] + size, step).astype(int)
-    y = np.linspace(point[1] - size, point[1] + size, step).astype(int)
+    x = np.arange(point[0] - size, point[0] + size).astype(int)
+    y = np.arange(point[1] - size, point[1] + size).astype(int)
 
     positions = np.array(np.meshgrid(x, y)).T.reshape(-1, 2)
     values = gt_field[positions[:, 0], positions[:, 1]]
@@ -108,7 +118,7 @@ def onclick(event):
 
     # new_measurement = Z[(add_point[0]*Z.shape[0]).astype(int), (add_point[1]*Z.shape[1]).astype(int)][np.newaxis]
 
-    new_locations, new_measurement = get_measurement(gt.read(), add_point, size=3, step=3)
+    new_locations, new_measurement = get_measurement(gt.read(), add_point, size=2, step=6)
 
     x_meas = np.vstack((x_meas, new_locations))
     y_meas = np.concatenate((y_meas, new_measurement))
@@ -145,12 +155,14 @@ def onclick(event):
 
     error.append(mean_squared_error(gt.ground_truth_field.flatten(), mu_))
 
+
     """ Compute the uncertainty decrement """
     uncertainty_decrement = 100*(H - sigma_.sum())/H0
     He.append(uncertainty_decrement)
 
     print('Entropy: ', H - sigma_.sum())
     H = sigma_.sum()
+    Ht.append(sigma_.mean())
 
     """ Compute the Regret """
 
@@ -174,6 +186,10 @@ def onclick(event):
 
     derr.set_xdata(np.arange(0,len(error)))
     derr.set_ydata(error)
+
+    du.set_xdata(np.arange(0, len(Ht)))
+    du.set_ydata(Ht)
+
     fig.canvas.draw()
     fig.canvas.flush_events()
 
