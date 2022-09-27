@@ -153,6 +153,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		# The contribution of every agent to the uncertainty decrement (to compute the reward)#
 		self.intermediate_uncertainty_values = np.ones(shape=(len(self.visitable_positions),))
+		self.intermediate_mu_values = np.zeros(shape=(len(self.visitable_positions),))
 		self.individual_uncertainty_decrement = np.array([0.0 for _ in range(self.number_of_agents)])
 		self.individual_mse = np.array([0.0 for _ in range(self.number_of_agents)])
 
@@ -201,12 +202,16 @@ class InformationGatheringEnv(MultiAgentEnv):
 		# Update the model with the initial values #
 		self.last_measurement_values = np.array([0.0 for _ in range(self.number_of_agents)])
 		self.intermediate_uncertainty_values = np.ones(shape=(len(self.visitable_positions),))
+		self.intermediate_mu_values = np.ones(shape=(len(self.visitable_positions),))
+		self.individual_kl_divergence = np.array([0.0 for _ in range(self.number_of_agents)])
 		self.individual_uncertainty_decrement = np.array([0.0 for _ in range(self.number_of_agents)])
+		self.individual_model_change = np.array([0.0 for _ in range(self.number_of_agents)])
 		self.individual_mse = np.zeros(shape=(self.number_of_agents,))
 		self.mu, self.uncertainty = self.update_model(new_measurements=self.measurements)
 		self.acc_reward = 0
 
 		self.uncertainty_0 = self.uncertainty.sum()
+		self.kl0 = np.sum(0.5 * (1.0 + (self.mu[self.visitable_positions[:,0], self.visitable_positions[:,1]]) ** 2) / ((self.uncertainty[self.visitable_positions[:,0], self.visitable_positions[:,1]] ** 2) - 0.5))
 
 		# Update the state
 		self.states = self.process_states()
@@ -269,13 +274,9 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 			# Fit the gaussian process #
 			if self.env_config['temporal']:
-				self.GaussianProcess.fit(np.hstack((self.measured_locations, self.measurements_time)),
-										 self.measured_values)
+				self.GaussianProcess.fit(np.hstack((self.measured_locations, self.measurements_time)),self.measured_values)
 				# Compute the mean and the std values for all the visitable positions #
-				mu_array, sigma_array = self.GaussianProcess.predict(np.hstack((self.visitable_positions[:],
-																				np.full(
-																					(len(self.visitable_positions), 1),
-																					np.max(self.measurements_time)))),
+				mu_array, sigma_array = self.GaussianProcess.predict(np.hstack((self.visitable_positions[:], np.full((len(self.visitable_positions), 1), np.max(self.measurements_time)))),
 																	 return_std=True)
 			else:
 				self.GaussianProcess.fit(self.measured_locations, self.measured_values)
@@ -283,14 +284,19 @@ class InformationGatheringEnv(MultiAgentEnv):
 				mu_array, sigma_array = self.GaussianProcess.predict(self.visitable_positions[:], return_std=True)
 
 			# Compute the new mean error #
-			self.mse = np.sum(np.abs(self.ground_truth.ground_truth_field[
-										 self.visitable_positions[:, 0], self.visitable_positions[:, 1]] - mu_array))
-			self.individual_mse[agent_id] = self.mse - self.mse_ant
+			self.mse = np.mean(np.abs(self.ground_truth.ground_truth_field[self.visitable_positions[:, 0], self.visitable_positions[:, 1]] - mu_array))
+			self.individual_mse[agent_id] = - self.mse + self.mse_ant
 			self.mse_ant = self.mse
 
-			# Save the intermediate uncertainty maps for uncertainty credit assignment #
+			# Compute the KL distance respect the latest obtained model #
+			kl_div = np.clip(np.log(sigma_array/self.intermediate_uncertainty_values) + 0.5 * (self.intermediate_uncertainty_values**2 + (mu_array - self.intermediate_mu_values)**2)/(sigma_array**2) - 0.5, 0.0, 1.0)
+			self.individual_kl_divergence[agent_id] = np.sum(np.clip(kl_div, 0.0, 1.0))
+
+			# Save the intermediate uncertainty/mean maps for uncertainty/mean credit assignment #
 			self.individual_uncertainty_decrement[agent_id] = np.sum(self.intermediate_uncertainty_values - sigma_array)
+			self.individual_model_change[agent_id] = np.sum(mu_array - self.mu[self.visitable_positions[:, 0], self.visitable_positions[:, 1]])
 			self.intermediate_uncertainty_values = sigma_array.copy()
+			self.intermediate_mu_values = mu_array.copy()
 
 		# Conform the map of the surrogate model for the state #
 		mu_map = np.copy(self.env_config['navigation_map'])
@@ -320,9 +326,13 @@ class InformationGatheringEnv(MultiAgentEnv):
 			agents_ids = self.agents_ids
 
 		if self.env_config['reward_type'] == 'uncertainty':
-			reward = 100 * self.individual_uncertainty_decrement / self.uncertainty_0
+			reward = 100 * self.individual_uncertainty_decrement
 		elif self.env_config['reward_type'] == 'improvement':
 			reward = 100 * self.individual_uncertainty_decrement * (1.0 + self.last_measurement_values) / self.uncertainty_0
+		elif self.env_config['reward_type'] == 'improvement2':
+			reward = 100 * self.individual_uncertainty_decrement * self.individual_model_change / self.uncertainty_0
+		elif self.env_config['reward_type'] == 'kl':
+			reward = 100 * self.individual_kl_divergence/self.kl0
 		elif self.env_config['reward_type'] == 'error':
 			reward = self.individual_mse.copy()
 		else:
@@ -655,8 +665,9 @@ if __name__ == '__main__':
 	env_config['ground_truth_config'] = gt_config_file
 	env_config['navigation_map'] = navigation_map
 	env_config['fleet_configuration']['number_of_vehicles'] = N
-	env_config['full_observable'] = True
-	env_config['reward_type'] = 'improvement'
+	env_config['fleet_configuration']['max_travel_distance'] = 150
+	env_config['full_observable'] = False
+	env_config['reward_type'] = 'kl'
 
 	# Create the environment #
 	env = InformationGatheringEnv(env_config=env_config)
@@ -694,9 +705,8 @@ if __name__ == '__main__':
 											  p=mask.astype(int) / np.sum(mask))
 
 		H.append(list(100 * env.individual_uncertainty_decrement / env.uncertainty_0))
-		reg.append(list(env.last_measurement_values))
-		rew.append(
-			list(100 * env.individual_uncertainty_decrement * (1.0 + env.last_measurement_values) / env.uncertainty_0))
+		reg.append(list(env.individual_mse))
+		rew.append(list(env.individual_kl_divergence))
 		colli.append(list(env.number_of_collisions))
 
 		print("States: ", states.keys())
@@ -726,3 +736,9 @@ if __name__ == '__main__':
 	plt.show(block=True)
 
 	print(np.sum(rew))
+
+	plt.scatter(rew, H)
+	plt.show(block=True)
+
+	plt.scatter(rew, reg)
+	plt.show(block=True)

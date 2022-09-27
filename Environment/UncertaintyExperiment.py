@@ -13,7 +13,7 @@ from mpl_toolkits.mplot3d import Axes3D
 
 max_distance = 3.0
 
-temporal = True
+temporal = False
 """ Gaussian Process Regressor """
 if temporal:
     gp = GaussianProcessRegressor(kernel=Matern(length_scale=(2.5, 2.5, 60), length_scale_bounds=[(3.5, 3.5), (3.5, 3.5), (60, 60)]), optimizer=None, alpha=0.001)
@@ -22,11 +22,12 @@ else:
     gp = GaussianProcessRegressor(kernel=Matern(length_scale=3.5, length_scale_bounds=(0.1, 10.)), alpha=0.001, n_restarts_optimizer=20, optimizer=None,)
 
 
-config = WildfireSimulator.sim_config_template
+config = Shekel.sim_config_template
 config['navigation_map'] = np.ones((50, 50))
 config['init_time'] = 0
 
-gt = WildfireSimulator(config)
+gt = Shekel(config)
+gt.reset(True)
 gt.reset(True)
 gt.step()
 
@@ -64,7 +65,7 @@ error.append(mean_squared_error(gt.ground_truth_field.flatten(), mu))
 """ Plot the data"""
 d = ax[0].imshow(gt.read(), cmap='jet', vmax=1.0, vmin=0.0)
 ds = ax[1].imshow(sigma.reshape(gt.ground_truth_field.shape), cmap='viridis')
-d1, = ax[0].plot(x_meas[:,1]*50, x_meas[:,0]*50, 'r-x', markersize=2, linewidth=0.1)
+d1, = ax[0].plot(x_meas[:,1]*50, x_meas[:,0]*50, 'rx', markersize=5, linewidth=0.1)
 de = ax[2].imshow(gt.read(), cmap='jet', vmax=1.0, vmin=0.0)
 derr, = ax[3].plot(error, 'x-')
 
@@ -81,18 +82,23 @@ R = []
 Re = []
 He = []
 Ht = [H]
+KL = []
 
 H0 = sigma.sum()
 
 axt.set_ylim((0, sigma.mean()))
 du, = axt.plot(sigma.mean(), 'r-o')
 sigma_ant = sigma.copy()
+mu_ant = mu.copy()
 
 
 def get_measurement(gt_field, point, size, step):
 
-    x = np.arange(point[0] - size, point[0] + size).astype(int)
-    y = np.arange(point[1] - size, point[1] + size).astype(int)
+    if size != 0:
+        x = np.arange(point[0] - size, point[0] + size).astype(int)
+        y = np.arange(point[1] - size, point[1] + size).astype(int)
+    else:
+        x, y = point.astype(int)
 
     positions = np.array(np.meshgrid(x, y)).T.reshape(-1, 2)
     values = gt_field[positions[:, 0], positions[:, 1]]
@@ -105,7 +111,7 @@ def onclick(event):
     global y_meas
     global gp
     global d
-    global H, R, Re, He, sigma_ant, t_sample, position
+    global H, R, Re, He, sigma_ant, t_sample, position, mu_ant
 
     """ Get the new measurement """
     new_point = np.array([event.ydata, event.xdata])
@@ -116,9 +122,7 @@ def onclick(event):
 
     position = add_point
 
-    # new_measurement = Z[(add_point[0]*Z.shape[0]).astype(int), (add_point[1]*Z.shape[1]).astype(int)][np.newaxis]
-
-    new_locations, new_measurement = get_measurement(gt.read(), add_point, size=2, step=6)
+    new_locations, new_measurement = get_measurement(gt.read(), add_point, size=0, step=0)
 
     x_meas = np.vstack((x_meas, new_locations))
     y_meas = np.concatenate((y_meas, new_measurement))
@@ -151,8 +155,6 @@ def onclick(event):
         gp.fit(x_meas, y_meas)
         mu_, sigma_ = gp.predict(x_locs, return_std=True)
 
-    sigma_ant = sigma_.copy()
-
     error.append(mean_squared_error(gt.ground_truth_field.flatten(), mu_))
 
 
@@ -177,6 +179,11 @@ def onclick(event):
     R.append(reward)
     print('Reward', reward)
 
+    """ Compute the KL divergence """
+    kl = np.mean(np.log(sigma_/sigma_ant) + (sigma_ant**2+(mu_ - mu_ant)**2)/(2*sigma_**2)-0.5)
+    KL.append(kl)
+    print('KL', kl)
+
     """ Plot the results """
     d.set_data(mu_.reshape(gt.ground_truth_field.shape))
     d1.set_xdata(x_meas[:, 1])
@@ -184,14 +191,17 @@ def onclick(event):
     ds.set_data(sigma_.reshape(gt.ground_truth_field.shape))
     de.set_data(gt.ground_truth_field)
 
-    derr.set_xdata(np.arange(0,len(error)))
+    derr.set_xdata(np.arange(0, len(error)))
     derr.set_ydata(error)
 
     du.set_xdata(np.arange(0, len(Ht)))
-    du.set_ydata(Ht)
+    du.set_ydata(np.cumsum(Ht))
 
     fig.canvas.draw()
     fig.canvas.flush_events()
+
+    sigma_ant = sigma_.copy()
+    mu_ant = mu_.copy()
 
 
 cid = fig.canvas.mpl_connect('button_press_event', onclick)
