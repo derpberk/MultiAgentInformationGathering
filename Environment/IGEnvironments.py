@@ -572,7 +572,8 @@ class InformationGatheringEnv(MultiAgentEnv):
 		self.acc_reward += np.asarray([val for val in self.rewards.values()]).sum()
 
 		# Compute the metrics (if we are in eval mode) #
-		self.infos['metrics'] = self.compute_metrics() if self._eval else {}
+		if self._eval:
+			self.infos['metrics'] = self.compute_metrics() if self._eval else {}
 
 		return self.states, self.rewards, self.dones, self.infos
 
