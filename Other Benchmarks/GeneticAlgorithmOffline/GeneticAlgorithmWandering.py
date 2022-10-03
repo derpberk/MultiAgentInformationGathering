@@ -149,7 +149,7 @@ def evalEnv(list_ind, local_env):
 		while not dones['__all__']:
 			# Take the actions at instant t and create a dictionary of actions #
 			actions_dict = {i: a for i, a in enumerate(individual[t, :])}
-			states, rewards, dones, _ = local_env.step({i: actions_dict[i] for i in dones.keys() if (not dones[i]) and i != '__all__'})
+			states, rewards, dones, _ = local_env.process_action({i: actions_dict[i] for i in dones.keys() if (not dones[i]) and i != '__all__'})
 			R.append(np.sum(list(rewards.values())))
 			t+=1
 

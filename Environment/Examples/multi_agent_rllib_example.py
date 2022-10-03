@@ -42,14 +42,14 @@ class FlexAgentsMultiAgent(MultiAgentEnv):
 		obs, rew, done, info = {}, {}, {}, {}
 		# Apply the actions.
 		for i, action in action_dict.items():
-			obs[i], rew[i], done[i], info[i] = self.agents[i].step(action)
+			obs[i], rew[i], done[i], info[i] = self.agents[i].process_action(action)
 			if done[i]:
 				self.dones.add(i)
 
 		# Sometimes, add a new agent to the episode.
 		if random.random() > 0.75 and len(action_dict) > 0:
 			i = self.spawn()
-			obs[i], rew[i], done[i], info[i] = self.agents[i].step(action)
+			obs[i], rew[i], done[i], info[i] = self.agents[i].process_action(action)
 			if done[i]:
 				self.dones.add(i)
 
