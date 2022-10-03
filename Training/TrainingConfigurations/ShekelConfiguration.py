@@ -1,4 +1,3 @@
-import ray
 from ray.rllib.algorithms.dqn import DQN, DQNConfig
 from Environment.IGEnvironments import InformationGatheringEnv
 import numpy as np

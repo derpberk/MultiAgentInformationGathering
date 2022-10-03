@@ -21,7 +21,10 @@ env = InformationGatheringEnv(configuration.env_config)
 env.eval()
 N = env.number_of_agents
 trainer = DQN(config=configuration)
-trainer.restore(r'C:\Users\yane_sa\PycharmProjects\MultiAgentInformationGathering\Training\runs\DQN_2022-09-30_13-51-15\DQN_InformationGatheringEnv_30742_00000_0_2022-09-30_13-51-16\checkpoint_000001\checkpoint-1')
+trainer.restore(r'C:\Users\yane_sa\PycharmProjects\MultiAgentInformationGathering\Training\runs\DQN_2022-09-30_14-52-05\DQN_InformationGatheringEnv_afad5_00000_0_2022-09-30_14-52-05\checkpoint_000001\checkpoint-1')
+
+trainer.get_policy('shared_policy').export_model(export_dir='.')
+
 
 # Create the evaluator and pass the metrics #
 evaluator = MetricsDataCreator(metrics_names=['Mean Reward',
