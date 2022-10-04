@@ -9,8 +9,6 @@ navigation_map = np.genfromtxt('../Environment/wesslinger_map.txt')
 N = 4
 
 from ShekelGroundTruth import Shekel
-from OilSpillEnvironment import OilSpill
-from FireFront import WildfireSimulator
 
 gt = Shekel
 gt_config_file = gt.sim_config_template
@@ -30,11 +28,25 @@ env_config = {'fleet_configuration': {
 	                               [13, 19],
 	                               [18, 19],
 	                               [15, 22]])
-}, 'movement_type': 'DIRECTIONAL', 'navigation_map': navigation_map, 'min_measurement_distance': 3, 'max_measurement_distance': 6,
-	'measurement_distance': 3, 'number_of_actions': 8, 'kernel_length_scale': (2.5, 2.5, 50),
-	'kernel_length_scale_bounds': ((0.1, 10), (0.1, 10), (0.001, 100)), 'random_benchmark': True, 'observation_type': 'visual', 'max_collisions': 10,
-	'eval_mode': True, 'seed': 23, 'reward_type': 'improvement', 'dynamic': True, 'ground_truth': gt, 'ground_truth_config': gt_config_file,
-	'temporal': False, 'full_observable': False}
+}, 'movement_type': 'DIRECTIONAL',
+	'navigation_map': navigation_map,
+	'min_measurement_distance': 3,
+	'max_measurement_distance': 6,
+	'measurement_distance': 3,
+	'number_of_actions': 8,
+	'kernel_length_scale': (12.27, 12.27, 50),
+	'kernel_length_scale_bounds': ((0.1, 30), (0.1, 30), (0.001, 100)),
+	'random_benchmark': True,
+	'observation_type': 'visual',
+	'max_collisions': 5,
+	'eval_mode': False,
+	'seed': 23,
+	'reward_type': 'improvement',
+	'dynamic': False,
+	'ground_truth': gt,
+	'ground_truth_config': gt_config_file,
+	'temporal': False,
+	'full_observable': False}
 
 env = InformationGatheringEnv(env_config)
 
@@ -43,7 +55,7 @@ env = InformationGatheringEnv(env_config)
 # Create our RLlib Trainer.
 agent = MultiAgentDuelingDQNAgent(
 	env=env,
-	memory_size=50_000,
+	memory_size=500_000,
 	batch_size=64,
 	target_update=1000,
 	epsilon_values=[1.0, 0.05],
@@ -57,10 +69,10 @@ agent = MultiAgentDuelingDQNAgent(
 	prior_eps=1e-6,
 	# NN parameters
 	number_of_features=512,
-	logdir=None,
-	log_name="CustomExperiment",
+	logdir='./custom_runs',
+	log_name="Uncertainty_experiment",
 	save_every=1000,
 	train_every=1,
 )
 
-agent.train(20_000)
+agent.train(50_000)

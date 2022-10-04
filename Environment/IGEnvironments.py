@@ -667,6 +667,8 @@ if __name__ == '__main__':
 	env_config['navigation_map'] = navigation_map
 	env_config['fleet_configuration']['number_of_vehicles'] = N
 	env_config['fleet_configuration']['max_travel_distance'] = 150
+	env_config['kernel_length_scale'] = (12.27, 12.27, 50)
+	env_config['kernel_length_scale_bounds'] = ((0.1, 30), (0.1, 30), (0.001, 100)),
 	env_config['full_observable'] = False
 	env_config['reward_type'] = 'kl'
 
