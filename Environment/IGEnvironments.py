@@ -326,7 +326,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 			agents_ids = self.agents_ids
 
 		if self.env_config['reward_type'] == 'uncertainty':
-			reward = 100 * self.individual_uncertainty_decrement
+			reward = 100 * self.individual_uncertainty_decrement / self.uncertainty_0
 		elif self.env_config['reward_type'] == 'improvement':
 			reward = 100 * self.individual_uncertainty_decrement * (1.0 + self.last_measurement_values) / self.uncertainty_0
 		elif self.env_config['reward_type'] == 'improvement2':
@@ -666,11 +666,11 @@ if __name__ == '__main__':
 	env_config['ground_truth_config'] = gt_config_file
 	env_config['navigation_map'] = navigation_map
 	env_config['fleet_configuration']['number_of_vehicles'] = N
-	env_config['fleet_configuration']['max_travel_distance'] = 150
+	env_config['fleet_configuration']['max_travel_distance'] = 50
 	env_config['kernel_length_scale'] = (12.27, 12.27, 50)
 	env_config['kernel_length_scale_bounds'] = ((0.1, 30), (0.1, 30), (0.001, 100)),
 	env_config['full_observable'] = False
-	env_config['reward_type'] = 'kl'
+	env_config['reward_type'] = 'uncertainty'
 
 	# Create the environment #
 	env = InformationGatheringEnv(env_config=env_config)
