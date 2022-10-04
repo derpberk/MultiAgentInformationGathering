@@ -35,7 +35,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 		'measurement_distance': 3,
 		'number_of_actions': 8,
 		'kernel_length_scale': (3.5, 3.5, 50),
-		'kernel_length_scale_bounds': ((0.1, 10), (0.1, 10), (0.001, 100)),
+		'kernel_length_scale_bounds': ((0.1, 30), (0.1, 30), (0.001, 100)),
 		'random_benchmark': True,
 		'observation_type': 'visual',
 		'max_collisions': 10,
@@ -133,9 +133,9 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		# The Gaussian Process #
 		self.GaussianProcess = GaussianProcessRegressor(kernel=self.kernel,
-														alpha=0.01,
+														alpha=0.001,
 														optimizer=None,
-														n_restarts_optimizer=10)
+														n_restarts_optimizer=10,)
 		# The list of measured values (y in GP)
 		self.measured_values = None
 		# The list of measured positions (x in GP)
@@ -282,6 +282,10 @@ class InformationGatheringEnv(MultiAgentEnv):
 				self.GaussianProcess.fit(self.measured_locations, self.measured_values)
 				# Compute the mean and the std values for all the visitable positions #
 				mu_array, sigma_array = self.GaussianProcess.predict(self.visitable_positions[:], return_std=True)
+
+			# Clip to 0 #
+
+			mu_array = np.clip(mu_array, 0.0, 1.0)
 
 			# Compute the new mean error #
 			self.mse = np.mean(np.abs(self.ground_truth.ground_truth_field[self.visitable_positions[:, 0], self.visitable_positions[:, 1]] - mu_array))
@@ -598,13 +602,14 @@ class InformationGatheringEnv(MultiAgentEnv):
 				raise NotImplementedError('Cannot render with an invalid observation type.')
 
 			self.axs[2].set_title('Estimated model')
-			self.s2 = self.axs[2].imshow(self.individual_state(0)[3], cmap='jet', vmin=0.0, vmax=1.0)
+			self.s2 = self.axs[2].imshow(self.mu, cmap='jet', vmin=0.0, vmax=1.0)
 
 			self.axs[3].set_title('Uncertainty')
 			self.s3 = self.axs[3].imshow(self.uncertainty, cmap='gray', vmin=0.0, vmax=1.0)
 
 			self.axs[4].set_title('Ground truth')
 			self.s4 = self.axs[4].imshow(self.ground_truth.ground_truth_field, cmap='jet', vmin=0.0, vmax=1.0)
+			self.s5, = self.axs[4].plot(self.measured_locations[:,1], self.measured_locations[:,0], 'wx', markersize=6)
 
 		else:
 
@@ -614,9 +619,10 @@ class InformationGatheringEnv(MultiAgentEnv):
 				self.s1.set_data(
 					np.sum([self.individual_state(i)['visual_state'][2] for i in range(self.number_of_agents)], axis=0))
 
-			self.s2.set_data(self.individual_state(0)[3])
+			self.s2.set_data(self.mu)
 			self.s3.set_data(self.uncertainty)
 			self.s4.set_data(self.ground_truth.ground_truth_field)
+			self.s5.set_data((self.measured_locations[:,1], self.measured_locations[:,0]))
 
 			self.fig.canvas.draw()
 
