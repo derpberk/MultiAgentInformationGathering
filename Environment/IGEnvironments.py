@@ -7,6 +7,7 @@ from Fleet import Fleet
 from Vehicle import FleetState
 from typing import Union
 from random import shuffle
+from matplotlib.colors import LogNorm
 import matplotlib.pyplot as plt
 
 
@@ -129,7 +130,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 							  length_scale_bounds=env_config['kernel_length_scale_bounds'])
 		else:
 			self.kernel = RBF(length_scale=env_config['kernel_length_scale'][0],
-							  length_scale_bounds=env_config['kernel_length_scale_bounds'][0])
+							  length_scale_bounds=env_config['kernel_length_scale_bounds'][0][0])
 
 		# The Gaussian Process #
 		self.GaussianProcess = GaussianProcessRegressor(kernel=self.kernel,
@@ -605,7 +606,10 @@ class InformationGatheringEnv(MultiAgentEnv):
 			self.s2 = self.axs[2].imshow(self.mu, cmap='jet', vmin=0.0, vmax=1.0)
 
 			self.axs[3].set_title('Uncertainty')
-			self.s3 = self.axs[3].imshow(self.uncertainty, cmap='gray', vmin=0.0, vmax=1.0)
+			unc = self.uncertainty.copy() * np.nan
+			unc[self.visitable_positions[:, 0], self.visitable_positions[:, 1]] = self.uncertainty[
+				self.visitable_positions[:, 0], self.visitable_positions[:, 1]]
+			self.s3 = self.axs[3].imshow(unc, cmap='gray', vmin=0, vmax=1)
 
 			self.axs[4].set_title('Ground truth')
 			self.s4 = self.axs[4].imshow(self.ground_truth.ground_truth_field, cmap='jet', vmin=0.0, vmax=1.0)
@@ -620,7 +624,10 @@ class InformationGatheringEnv(MultiAgentEnv):
 					np.sum([self.individual_state(i)['visual_state'][2] for i in range(self.number_of_agents)], axis=0))
 
 			self.s2.set_data(self.mu)
-			self.s3.set_data(self.uncertainty)
+			unc = self.uncertainty.copy()*np.nan
+			unc[self.visitable_positions[:, 0], self.visitable_positions[:, 1]] = self.uncertainty[self.visitable_positions[:, 0], self.visitable_positions[:, 1]]
+
+			self.s3.set_data(unc)
 			self.s4.set_data(self.ground_truth.ground_truth_field)
 			self.s5.set_data((self.measured_locations[:,1], self.measured_locations[:,0]))
 
@@ -661,7 +668,7 @@ if __name__ == '__main__':
 	# The scenario
 	navigation_map = np.genfromtxt('./wesslinger_map.txt')
 	# Number of agents
-	N = 4
+	N = 1
 	# Set up the Ground Truth #
 	gt_config_file = Shekel.sim_config_template
 	gt_config_file['navigation_map'] = navigation_map
@@ -673,7 +680,7 @@ if __name__ == '__main__':
 	env_config['navigation_map'] = navigation_map
 	env_config['fleet_configuration']['number_of_vehicles'] = N
 	env_config['fleet_configuration']['max_travel_distance'] = 50
-	env_config['kernel_length_scale'] = (12.27, 12.27, 50)
+	env_config['kernel_length_scale'] = (8.5, 8.5, 50)
 	env_config['kernel_length_scale_bounds'] = ((0.1, 30), (0.1, 30), (0.001, 100)),
 	env_config['full_observable'] = False
 	env_config['reward_type'] = 'uncertainty'
