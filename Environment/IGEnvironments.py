@@ -294,8 +294,8 @@ class InformationGatheringEnv(MultiAgentEnv):
 			self.mse_ant = self.mse
 
 			# Compute the KL distance respect the latest obtained model #
-			kl_div = np.clip(np.log(sigma_array/self.intermediate_uncertainty_values) + 0.5 * (self.intermediate_uncertainty_values**2 + (mu_array - self.intermediate_mu_values)**2)/(sigma_array**2) - 0.5, 0.0, 1.0)
-			self.individual_kl_divergence[agent_id] = np.sum(np.clip(kl_div, 0.0, 1.0))
+			kl_div = np.abs(np.log(sigma_array/self.intermediate_uncertainty_values) + 0.5 * (self.intermediate_uncertainty_values**2 + (mu_array - self.intermediate_mu_values)**2)/(sigma_array**2) - 0.5)
+			self.individual_kl_divergence[agent_id] = np.mean(np.tanh(kl_div))
 
 			# Save the intermediate uncertainty/mean maps for uncertainty/mean credit assignment #
 			self.individual_uncertainty_decrement[agent_id] = np.sum(self.intermediate_uncertainty_values - sigma_array)
@@ -337,7 +337,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 		elif self.env_config['reward_type'] == 'improvement2':
 			reward = 100 * self.individual_uncertainty_decrement * self.individual_model_change / self.uncertainty_0
 		elif self.env_config['reward_type'] == 'kl':
-			reward = 100 * self.individual_kl_divergence/self.kl0
+			reward = 100 * self.individual_kl_divergence
 		elif self.env_config['reward_type'] == 'error':
 			reward = self.individual_mse.copy()
 		else:
@@ -484,9 +484,9 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		metric_dict = {'error': self.mse,
 					   'accumulated_reward': self.acc_reward,
-					   'uncertainty': self.uncertainty[
-						   self.visitable_positions[:, 0], self.visitable_positions[:, 1]].mean(),
-					   'instant_regret': 1.0 - self.last_measurement_values.mean()
+					   'uncertainty': self.uncertainty[self.visitable_positions[:, 0], self.visitable_positions[:, 1]].mean(),
+					   'model_change': self.individual_model_change.mean(),
+					   'kl_divergence': self.individual_kl_divergence.mean()
 					   }
 
 		if mission_type == 'MaximaSearch':
@@ -668,7 +668,7 @@ if __name__ == '__main__':
 	# The scenario
 	navigation_map = np.genfromtxt('./wesslinger_map.txt')
 	# Number of agents
-	N = 1
+	N = 4
 	# Set up the Ground Truth #
 	gt_config_file = Shekel.sim_config_template
 	gt_config_file['navigation_map'] = navigation_map
@@ -683,7 +683,7 @@ if __name__ == '__main__':
 	env_config['kernel_length_scale'] = (8.5, 8.5, 50)
 	env_config['kernel_length_scale_bounds'] = ((0.1, 30), (0.1, 30), (0.001, 100)),
 	env_config['full_observable'] = False
-	env_config['reward_type'] = 'uncertainty'
+	env_config['reward_type'] = 'kl'
 
 	# Create the environment #
 	env = InformationGatheringEnv(env_config=env_config)
@@ -694,7 +694,7 @@ if __name__ == '__main__':
 	dones['__all__'] = False
 
 	H = []
-	reg = []
+	mse = []
 	rew = []
 	colli = []
 
@@ -720,9 +720,9 @@ if __name__ == '__main__':
 				actions[i] = np.random.choice(np.arange(env.env_config['number_of_actions']),
 											  p=mask.astype(int) / np.sum(mask))
 
-		H.append(list(100 * env.individual_uncertainty_decrement / env.uncertainty_0))
-		reg.append(list(env.individual_mse))
-		rew.append(list(env.individual_kl_divergence))
+		H.append(env.uncertainty.mean())
+		mse.append(env.mse)
+		rew.append(np.mean(list(rewards.values())))
 		colli.append(list(env.number_of_collisions))
 
 		print("States: ", states.keys())
@@ -742,8 +742,8 @@ if __name__ == '__main__':
 
 		ax[0].set_ylabel('Uncertainty')
 		ax[0].plot(H, '-', linewidth=2)
-		ax[1].set_ylabel('Value')
-		ax[1].plot(reg, '-', linewidth=2)
+		ax[1].set_ylabel('error')
+		ax[1].plot(mse, '-', linewidth=2)
 		ax[2].set_ylabel('Reward')
 		ax[2].plot(rew, '-', linewidth=2)
 		ax[3].set_ylabel('Collisions')
@@ -756,5 +756,5 @@ if __name__ == '__main__':
 	plt.scatter(rew, H)
 	plt.show(block=True)
 
-	plt.scatter(rew, reg)
+	plt.scatter(rew, mse)
 	plt.show(block=True)
