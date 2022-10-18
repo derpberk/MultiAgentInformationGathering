@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 import random
-from groundtruth import GroundTruth
+from Environment.groundtruth import GroundTruth
 from collections import defaultdict
 
 FIRE = 0
@@ -22,8 +22,8 @@ class WildfireSimulator(GroundTruth):
 		"init_hotspots": 1,  # Select the number of hotspots
 		"seed": 9875123,
 		"max_ignition_distance": 3,
-		"ignition_factor": 0.005/2,
-		"wind_type": 'None',  # Options None, user, random
+		"ignition_factor": 0.005,
+		"wind_type": 'random',  # Options None, user, random
 		"wind_speed": 0,
 		"wind_angle": -20,
 		"initial_time": 100,
@@ -204,22 +204,13 @@ class WildfireSimulator(GroundTruth):
 if __name__ == '__main__':
 
 	sim_config = WildfireSimulator.sim_config_template
-	sim_config['navigation_map'] = np.genfromtxt('./wesslinger_map.txt')
+	sim_config['navigation_map'] = np.genfromtxt('Environment/SquaredMap.txt')
 
 	sim = WildfireSimulator(sim_config)
 	before = time.process_time()
-
 	for _ in range(20):
 		sim.reset()
 		before = time.process_time()
-		for i in range(100):
-			sim.step()
-			#sim.render()
+		sim.render()
 		print(time.process_time() - before)
 
-
-# plt.imshow(sim.burning_map)
-# plt.draw()
-# plt.pause(0.001)
-# print(sim.burning_dict)
-# print(sim.ignite_dict)
