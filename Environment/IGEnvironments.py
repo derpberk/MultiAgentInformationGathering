@@ -10,7 +10,6 @@ from random import shuffle
 from matplotlib.colors import LogNorm
 import matplotlib.pyplot as plt
 
-
 # noinspection GrazieInspection
 class InformationGatheringEnv(MultiAgentEnv):
 	default_env_config = {
@@ -226,7 +225,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 		print("Environment in eval mode!")
 		self._eval = True
 
-	def update_model(self, new_measurements: dict, agents_ids=None) -> (np.ndarray, np.ndarray):
+	def update_model(self, new_measurements: dict, agents_ids=None):
 		"""
 		Fit the gaussian process using the new_measurements and return a new inferred map and its uncertainty.
 		The process will update the gaussian model sequentially for each agent in *agents_ids*.
@@ -498,7 +497,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 
 		return metric_dict
 
-	def step(self, action_dict: dict) -> (dict, dict, dict, dict):
+	def step(self, action_dict: dict):
 		""" Process the actions. The action is processed for those waiting vehicles. The fleet is updated until one/all vehicles are ready.
 		Every vehicle takes a measurement and the reward is processed
 

@@ -1,7 +1,6 @@
 """ Offline GT environment. It records all ground truths in an off-line fashion for speeding up
 the training process """
 
-from sympy import Wild, WildFunction
 from groundtruth import GroundTruth
 import numpy as np
 from tqdm import trange
@@ -32,7 +31,7 @@ class OfflineGT(GroundTruth):
 		super().__init__(sim_config)
 
 		# Load the paths #
-		self.gts = np.load(path)
+		self.gts = np.random.shuffle(np.load(path))
 		self.ground_truth_field = None
 		self.t_pointer = -1
 
@@ -62,17 +61,15 @@ if __name__ == '__main__':
 
 	import matplotlib.pyplot as plt
 
-	"""
+	# EXAMPLE FOR RECORDING WILD FIRE SIMULATOR #
+
 	from FireFront import WildfireSimulator
 
 	config = WildfireSimulator.sim_config_template
-	config["wind_type"] = "random"
-
 	ground_truth = WildfireSimulator(config)
 
 	record_env(gt = ground_truth, path = './Environment/WFgts.npy', number_of_epochs=100, starting_time=30)
 
-	"""
 
 	gt = OfflineGT(OfflineGT.sim_config_template, "./Environment/WFgts.npy")
 
