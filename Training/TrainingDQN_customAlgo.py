@@ -62,6 +62,7 @@ env_config = {'fleet_configuration': {
 	'number_of_actions': 8,
 	'kernel_length_scale': kernel_lengthscale,
 	'kernel_length_scale_bounds': ((0.1, 30), (0.1, 30), (0.001, 100)),
+	'kernel_type': 'matern',
 	'random_benchmark': True,
 	'observation_type': 'visual',
 	'max_collisions': 5,
