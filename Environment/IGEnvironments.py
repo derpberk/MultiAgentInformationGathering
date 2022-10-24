@@ -38,6 +38,7 @@ class InformationGatheringEnv:
 		'number_of_actions': 8,
 		'kernel_length_scale': (3.5, 3.5, 50),
 		'kernel_length_scale_bounds': ((0.1, 30), (0.1, 30), (0.001, 100)),
+		'kernel_type': 'RBF',
 		'random_benchmark': True,
 		'observation_type': 'visual',
 		'max_collisions': 10,
@@ -126,12 +127,23 @@ class InformationGatheringEnv:
 
 		# ---- Parameters of the model (Gaussian Process) ---- #
 		# Kernel for model-conditioning #
+
+		
 		if env_config['temporal']:
-			self.kernel = RBF(length_scale=env_config['kernel_length_scale'],
-							  length_scale_bounds=env_config['kernel_length_scale_bounds'])
+
+			if env_config['kernel_type'] == 'RBF':
+				self.kernel = RBF(length_scale=env_config['kernel_length_scale'],
+								length_scale_bounds=env_config['kernel_length_scale_bounds'])
+			elif env_config['kernel_type'] == 'matern':
+				self.kernel = Matern(length_scale=env_config['kernel_length_scale'],
+								length_scale_bounds=env_config['kernel_length_scale_bounds'])
 		else:
-			self.kernel = Matern(length_scale=env_config['kernel_length_scale'][0],
-							  length_scale_bounds=env_config['kernel_length_scale_bounds'][0][0])
+			if env_config['kernel_type'] == 'RBF':
+				self.kernel = RBF(length_scale=env_config['kernel_length_scale'][0],
+								length_scale_bounds=env_config['kernel_length_scale_bounds'][0][0])
+			elif env_config['kernel_type'] == 'matern':
+				self.kernel = Matern(length_scale=env_config['kernel_length_scale'][0],
+								length_scale_bounds=env_config['kernel_length_scale_bounds'][0][0])
 
 		# The Gaussian Process #
 		self.GaussianProcess = GaussianProcessRegressor(kernel=self.kernel,
