@@ -1,7 +1,8 @@
+import sys
+sys.path.append('.')
 import gym
-from ray.rllib.env.multi_agent_env import MultiAgentEnv
 import numpy as np
-from sklearn.gaussian_process.kernels import RBF
+from sklearn.gaussian_process.kernels import RBF, Matern
 from sklearn.gaussian_process import GaussianProcessRegressor
 from Fleet import Fleet
 from Vehicle import FleetState
@@ -10,8 +11,9 @@ from random import shuffle
 from matplotlib.colors import LogNorm
 import matplotlib.pyplot as plt
 
+
 # noinspection GrazieInspection
-class InformationGatheringEnv(MultiAgentEnv):
+class InformationGatheringEnv:
 	default_env_config = {
 		'fleet_configuration': {
 			'vehicle_configuration': {
@@ -128,7 +130,7 @@ class InformationGatheringEnv(MultiAgentEnv):
 			self.kernel = RBF(length_scale=env_config['kernel_length_scale'],
 							  length_scale_bounds=env_config['kernel_length_scale_bounds'])
 		else:
-			self.kernel = RBF(length_scale=env_config['kernel_length_scale'][0],
+			self.kernel = Matern(length_scale=env_config['kernel_length_scale'][0],
 							  length_scale_bounds=env_config['kernel_length_scale_bounds'][0][0])
 
 		# The Gaussian Process #
@@ -665,21 +667,20 @@ if __name__ == '__main__':
 	from FireFront import WildfireSimulator
 
 	# The scenario
-	navigation_map = np.genfromtxt('./wesslinger_map.txt')
+	navigation_map = np.genfromtxt('Environment/SquaredMap.txt')
 	# Number of agents
 	N = 4
 	# Set up the Ground Truth #
-	gt_config_file = Shekel.sim_config_template
+	gt_config_file = WildfireSimulator.sim_config_template
 	gt_config_file['navigation_map'] = navigation_map
 
-	# S
 	env_config = InformationGatheringEnv.default_env_config
-	env_config['ground_truth'] = Shekel
+	env_config['ground_truth'] = WildfireSimulator
 	env_config['ground_truth_config'] = gt_config_file
 	env_config['navigation_map'] = navigation_map
 	env_config['fleet_configuration']['number_of_vehicles'] = N
-	env_config['fleet_configuration']['max_travel_distance'] = 50
-	env_config['kernel_length_scale'] = (8.5, 8.5, 50)
+	env_config['fleet_configuration']['vehicle_configuration']['max_travel_distance'] = 1000
+	env_config['kernel_length_scale'] = (3.5, 3.5, 50)
 	env_config['kernel_length_scale_bounds'] = ((0.1, 30), (0.1, 30), (0.001, 100)),
 	env_config['full_observable'] = False
 	env_config['reward_type'] = 'kl'
