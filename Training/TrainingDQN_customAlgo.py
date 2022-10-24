@@ -3,16 +3,45 @@ import numpy as np
 from CustomDQNImplementation.RainbowDQL.Agent.DuelingDQNAgent import MultiAgentDuelingDQNAgent
 
 
-""" Environment configuration"""
-navigation_map = np.genfromtxt('../Environment/wesslinger_map.txt')
-
 N = 4
 
+""" Environment configuration"""
+
+
+"""
+# SHEKEL BENCHMARK
+navigation_map = np.genfromtxt('../Environment/wesslinger_map.txt')
 from ShekelGroundTruth import Shekel
 
 gt = Shekel
 gt_config_file = gt.sim_config_template
 gt_config_file['navigation_map'] = navigation_map
+
+initial_positions = np.array([[15, 19],
+	                               [13, 19],
+	                               [18, 19],
+	                               [15, 22]])
+
+kernel_lengthscale = (8.5,8.5,50.0)
+
+"""
+
+# WILDFIRES BENCHMARK 
+navigation_map = np.genfromtxt('Environment/SqaredMap.txt')
+
+from Environment.FireFront import WildfireSimulator
+
+gt = WildfireSimulator
+gt_config_file = gt.sim_config_template
+gt_config_file['navigation_map'] = navigation_map
+
+initial_positions = np.array([[[15, 19],
+	                           [12, 19],
+	                           [15, 16],
+	                            12, 16]])
+
+kernel_lengthscale = (13.40, 13.40, 50)
+
 
 env_config = {'fleet_configuration': {
 	'vehicle_configuration': {
@@ -24,17 +53,14 @@ env_config = {'fleet_configuration': {
 		'max_travel_distance': 50,
 	},
 	'number_of_vehicles': N,
-	'initial_positions': np.array([[15, 19],
-	                               [13, 19],
-	                               [18, 19],
-	                               [15, 22]])
+	'initial_positions': initial_positions,
 }, 'movement_type': 'DIRECTIONAL',
 	'navigation_map': navigation_map,
 	'min_measurement_distance': 3,
 	'max_measurement_distance': 6,
 	'measurement_distance': 3,
 	'number_of_actions': 8,
-	'kernel_length_scale': (12.27, 12.27, 50),
+	'kernel_length_scale': kernel_lengthscale,
 	'kernel_length_scale_bounds': ((0.1, 30), (0.1, 30), (0.001, 100)),
 	'random_benchmark': True,
 	'observation_type': 'visual',
