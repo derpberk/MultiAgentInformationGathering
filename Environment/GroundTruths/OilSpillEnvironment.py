@@ -16,7 +16,8 @@ class OilSpill(GroundTruth):
 		"gamma": 1.0,
 		"flow": 10.0,
 		'normalize': True,
-		'initial_time': 10,
+		'initial_time': 50,
+		'flow_position': np.array([[50,50]])
 	}
 
 	def __init__(self, sim_config: dict):
@@ -56,6 +57,8 @@ class OilSpill(GroundTruth):
 		self.ground_truth_field = None
 		self.flow = int(sim_config['flow'])
 		self.spill_directions = None
+		self.initial_flow_position = sim_config['flow_position']
+
 
 		self.particles_speeds = None
 
@@ -75,8 +78,8 @@ class OilSpill(GroundTruth):
 		if random_benchmark:
 			self.seed += 1
 
-		random_indx = np.random.RandomState(self.seed).choice(np.arange(0,len(self.visitable_positions)), np.random.RandomState(self.seed).randint(1,3), replace=False)
-		self.source_points = np.copy(self.visitable_positions[random_indx])
+		random_indx = np.random.RandomState(self.seed).choice(np.arange(0,len(self.initial_flow_position)), 1)
+		self.source_points = np.copy(self.initial_flow_position[random_indx])
 		self.wind_speed = np.random.RandomState(self.seed).rand(2) * 2 - 1
 		self.source_fuel = 10000
 		self.contamination_position = np.copy(self.source_points)
@@ -192,18 +195,32 @@ class OilSpill(GroundTruth):
 
 if __name__ == '__main__':
 
-	my_map = np.ones((100,100))
+	my_map = np.ones((50,50))
 
 	config_dict = OilSpill.sim_config_template
 	config_dict['navigation_map'] = my_map
+	config_dict['flow_position'] = np.array([[25,25]])
 
 	env = OilSpill(config_dict)
-	env.reset()
 
-	for _ in range(10):
-		for _ in range(100):
-			env.step()
-			env.render()
-		env.reset(random_benchmark=False)
+	t0 = time.time()
+	env.reset()
+	print(time.time() - t0)
+
+	env.render()
+
+
+	t0 = time.time()
+	env.reset()
+	print(time.time() - t0)
+
+	env.render()
+
+	t0 = time.time()
+	env.reset()
+	print(time.time() - t0)
+
+	env.render()
+
 
 	plt.show()

@@ -71,7 +71,7 @@ class Vehicle:
 
 		return self.take_measurement()
 
-	def move_to(self, attemped_position: np.ndarray) -> [bool, np.ndarray]:
+	def move_to(self, attemped_position: np.ndarray):
 		""" This function directly moves the vehicle to a new position. If the movement is possible, the function returns
 		True. If the movement is not possible, the function returns False. The funtion also returns a sample value """
 
@@ -107,7 +107,7 @@ class Vehicle:
 
 		return self.vehicle_state
 
-	def step(self) -> [FleetState, np.ndarray]:
+	def step(self):
 		""" Process one discrete step of the vehicle and process the step according to the result of this movement.
 
 		Returns:
@@ -203,12 +203,17 @@ class Vehicle:
 		Returns:
 			measurement (dict): The measurement of the vehicle.
 		"""
+		point = self.position.astype(int)
+		if self.measurement_size != 0:
+			
 
-		upp_lims = np.clip(self.position + self.measurement_size, 0, self.navigation_map.shape).astype(int)
-		low_lims = np.clip(self.position - self.measurement_size, 0, self.navigation_map.shape).astype(int)
+			x = np.arange(point[0] - self.measurement_size, point[0] + self.measurement_size + 1).astype(int)
+			y = np.arange(point[1] - self.measurement_size, point[1] + self.measurement_size + 1).astype(int)
 
-		measurement_mask = self.ground_truth[low_lims[0]: upp_lims[0] + 1, upp_lims[1]: upp_lims[1] + 1]
+			positions = np.array(np.meshgrid(x, y)).T.reshape(-1, 2)
+			values = self.ground_truth[positions[:, 0], positions[:, 1]]
 
-		return {'data': measurement_mask, 'position': self.position}
+			return {'data': values, 'position': positions}
 
-
+		else:
+			return {'data': np.atleast_1d(self.ground_truth[point[0], point[1]]), 'position': np.atleast_2d(self.position)}

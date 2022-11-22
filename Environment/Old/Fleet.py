@@ -52,7 +52,7 @@ class Fleet:
 
 		self.fleet_state[agent_id] = self.vehicles[agent_id].set_target(target_position)  # Set the new position and update the state #
 
-	def step(self) -> (list, list):
+	def step(self):
 		""" Compute one discrete step for every vehicle and retreive the measurements and new states if they are available.
 		 Note that when the vehicle has finished the mission or is moving, the measurement is None. """
 
@@ -69,7 +69,7 @@ class Fleet:
 
 		return self.fleet_state, self.measurements
 
-	def update_syncronously(self) -> (list, list):
+	def update_syncronously(self):
 		""" Update the state of the fleet until all vehicles are not in ON_WAY state """
 
 		# Iterare for every vehicle #

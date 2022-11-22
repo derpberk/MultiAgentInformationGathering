@@ -1,3 +1,5 @@
+import sys
+sys.path.append('.')
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.gaussian_process import GaussianProcessRegressor
@@ -16,17 +18,17 @@ max_distance = 3.0
 temporal = False
 """ Gaussian Process Regressor """
 if temporal:
-    gp = GaussianProcessRegressor(kernel=Matern(length_scale=(2.5, 2.5, 60), length_scale_bounds=[(3.5, 3.5), (3.5, 3.5), (60, 60)]), optimizer=None, alpha=0.001)
+    gp = GaussianProcessRegressor(kernel=Matern(length_scale=(1.5, 1.5, 60), length_scale_bounds=[(3.5, 3.5), (3.5, 3.5), (60, 60)]), optimizer=None, alpha=0.001)
 
 else:
-    gp = GaussianProcessRegressor(kernel=Matern(length_scale=3.5, length_scale_bounds=(0.1, 10.)), alpha=0.001, n_restarts_optimizer=20, optimizer=None,)
+    gp = GaussianProcessRegressor(kernel=Matern(length_scale=2.5, length_scale_bounds=(0.1, 10.)), alpha=0.001, n_restarts_optimizer=20, optimizer=None,)
 
 
-config = Shekel.sim_config_template
+config = OilSpill.sim_config_template
 config['navigation_map'] = np.ones((50, 50))
 config['init_time'] = 0
 
-gt = Shekel(config)
+gt = OilSpill(config)
 gt.reset(True)
 gt.reset(True)
 gt.step()

@@ -1,5 +1,6 @@
 import sys
 sys.path.append('.')
+
 import gym
 import numpy as np
 from sklearn.gaussian_process.kernels import RBF, Matern
@@ -12,7 +13,6 @@ from matplotlib.colors import LogNorm
 import matplotlib.pyplot as plt
 
 
-# noinspection GrazieInspection
 class InformationGatheringEnv:
 	default_env_config = {
 		'fleet_configuration': {
@@ -21,7 +21,7 @@ class InformationGatheringEnv:
 				'navigation_map': None,
 				'target_threshold': 0.2,
 				'ground_truth': None,
-				'measurement_size': np.array([0, 0]),
+				'measurement_size': 0,
 				'max_travel_distance': 50,
 			},
 			'number_of_vehicles': 4,
@@ -266,34 +266,36 @@ class InformationGatheringEnv:
 
 			# Append the data to the list of measurement locations and values #
 			if self.measured_locations is None:
-				self.measured_locations = np.asarray([new_measurements[measurement_id]['position']])
+				self.measured_locations = new_measurements[measurement_id]['position']
 				# We compute the mean of the measurement-image #
-				self.measured_values = np.asarray([np.nanmean(new_measurements[measurement_id]['data'])])
+				self.measured_values = new_measurements[measurement_id]['data']
 				# If the mission is of a temporal-patrolling kind append also the time of the sample #
 				if self.env_config['temporal']:
 					self.measurements_time = np.atleast_2d(np.asarray([new_measurements[measurement_id]['time']]))
 
 			else:
-				self.measured_locations = np.vstack(
-					(self.measured_locations, np.asarray([new_measurements[measurement_id]['position']])))
-				self.measured_values = np.hstack(
-					(self.measured_values, np.asarray([np.nanmean(new_measurements[measurement_id]['data'])])))
+				self.measured_locations = np.vstack((self.measured_locations, new_measurements[measurement_id]['position']))
+				self.measured_values = np.hstack((self.measured_values, new_measurements[measurement_id]['data']))
 				# If the mission is of a temporal-patrolling kind append also the time of the sample #
 				if self.env_config['temporal']:
-					self.measurements_time = np.vstack(
-						(self.measurements_time, np.asarray([new_measurements[measurement_id]['time']])))
+					self.measurements_time = np.vstack((self.measurements_time, np.asarray([new_measurements[measurement_id]['time']])))
+
 
 			# Store this last measured value #
-			self.last_measurement_values[agent_id] = self.measured_values[-1]
+			self.last_measurement_values[agent_id] = np.mean(self.measured_values[-1])
 
 			# Fit the gaussian process #
 			if self.env_config['temporal']:
+
 				self.GaussianProcess.fit(np.hstack((self.measured_locations, self.measurements_time)),self.measured_values)
 				# Compute the mean and the std values for all the visitable positions #
 				mu_array, sigma_array = self.GaussianProcess.predict(np.hstack((self.visitable_positions[:], np.full((len(self.visitable_positions), 1), np.max(self.measurements_time)))),
 																	 return_std=True)
 			else:
-				self.GaussianProcess.fit(self.measured_locations, self.measured_values)
+				# Unique
+				self.measured_locations, unique_index = np.unique(self.measured_locations, axis=0, return_index=True)
+				self.measured_values = self.measured_values[unique_index]
+				self.GaussianProcess.fit(self.measured_locations, self.measured_values.reshape(-1,1))
 				# Compute the mean and the std values for all the visitable positions #
 				mu_array, sigma_array = self.GaussianProcess.predict(self.visitable_positions[:], return_std=True)
 
@@ -626,7 +628,7 @@ class InformationGatheringEnv:
 
 			self.axs[4].set_title('Ground truth')
 			self.s4 = self.axs[4].imshow(self.ground_truth.ground_truth_field, cmap='jet', vmin=0.0, vmax=1.0)
-			self.s5, = self.axs[4].plot(self.measured_locations[:,1], self.measured_locations[:,0], 'wx', markersize=6)
+			self.s5, = self.axs[4].plot(self.measured_locations[:,1], self.measured_locations[:,0], 'w.', markersize=6)
 
 		else:
 
@@ -685,21 +687,27 @@ if __name__ == '__main__':
 	# Set up the Ground Truth #
 	gt_config_file = WildfireSimulator.sim_config_template
 	gt_config_file['navigation_map'] = navigation_map
+	gt_config_file['flow_position'] = np.array([[25,25],[20,20]])
 
 	env_config = InformationGatheringEnv.default_env_config
 	env_config['ground_truth'] = WildfireSimulator
 	env_config['ground_truth_config'] = gt_config_file
 	env_config['navigation_map'] = navigation_map
 	env_config['fleet_configuration']['number_of_vehicles'] = N
-	env_config['fleet_configuration']['vehicle_configuration']['max_travel_distance'] = 1000
-	env_config['kernel_length_scale'] = (3.5, 3.5, 50)
+	env_config['fleet_configuration']['initial_positions'] = np.random.randint(1,49, size=(N,2))
+	env_config['fleet_configuration']['vehicle_configuration']['max_travel_distance'] = 100
+	env_config['kernel_length_scale'] = (12.5, 12.5, 50)
 	env_config['kernel_length_scale_bounds'] = ((0.1, 30), (0.1, 30), (0.001, 100)),
 	env_config['full_observable'] = False
 	env_config['reward_type'] = 'kl'
+	env_config['measurement_distance'] = 2
+	env_config['kernel_type'] = 'matern'
 
 	# Create the environment #
 	env = InformationGatheringEnv(env_config=env_config)
 
+	state = env.reset()
+	state = env.reset()
 	state = env.reset()
 
 	dones = {i: False for i in range(N)}

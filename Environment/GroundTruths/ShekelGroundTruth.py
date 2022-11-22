@@ -1,8 +1,8 @@
-
+import sys
 import numpy as np
 from deap import benchmarks
 from collections import defaultdict
-from groundtruth import GroundTruth
+from Environment.GroundTruths.groundtruth import GroundTruth
 
 
 class Shekel(GroundTruth):
@@ -97,17 +97,20 @@ class Shekel(GroundTruth):
         if position is None:
             return self.ground_truth_field
         else:
+            position = position.astype(int)
             return self.ground_truth_field[position[0]][position[1]]
 
     def render(self):
 
         """ Show the ground truth """
-        plt.imshow(self.read(), cmap='inferno', interpolation='none')
-        cs = plt.contour(self.read(), colors='royalblue', alpha=1, linewidths=1)
-        plt.clabel(cs, inline=1, fontsize=7)
-        plt.title("Nº of peaks: {}".format(gt.number_of_peaks), color='black', fontsize=10)
-        im = plt.plot(self.A[:, 0]*self.grid.shape[0]/10,
-                      self.A[:, 1]*self.grid.shape[1]/10, 'hk', )
+        grid = self.read()
+        grid[np.where(self.grid == 1)] = np.nan
+        plt.imshow(grid, cmap='coolwarm', interpolation='none')
+        #cs = plt.contour(self.read(), colors='royalblue', alpha=1, linewidths=1)
+        #plt.clabel(cs, inline=1, fontsize=7)
+        #plt.title("Nº of peaks: {}".format(gt.number_of_peaks), color='black', fontsize=10)
+        #im = plt.plot(self.A[:, 0]*self.grid.shape[0]/10,
+        #              self.A[:, 1]*self.grid.shape[1]/10, 'hk', )
         plt.show()
 
     def step(self):
@@ -122,7 +125,7 @@ if __name__ == "__main__":
 
     import matplotlib.pyplot as plt
 
-    nav_map = np.genfromtxt('./wesslinger_map.txt')
+    nav_map = np.genfromtxt('Environment/wesslinger_map.txt')
 
     gt_config = Shekel.sim_config_template
     gt_config['navigation_map'] = nav_map
@@ -131,6 +134,7 @@ if __name__ == "__main__":
     for i in range(10):
         gt.reset(random_benchmark=True)
         gt.render()
+        plt.pause(0.1)
 
 
 

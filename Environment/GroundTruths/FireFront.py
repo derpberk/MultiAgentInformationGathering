@@ -1,3 +1,5 @@
+import sys
+sys.path.append('.')
 import math
 from scipy.ndimage import gaussian_filter
 
@@ -5,7 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 import random
-from Environment.groundtruth import GroundTruth
+from Environment.GroundTruths.groundtruth import GroundTruth
 from collections import defaultdict
 
 FIRE = 0
@@ -213,4 +215,6 @@ if __name__ == '__main__':
 		before = time.process_time()
 		sim.render()
 		print(time.process_time() - before)
+
+		
 

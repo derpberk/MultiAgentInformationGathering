@@ -6,7 +6,7 @@ from sklearn.gaussian_process.kernels import RBF
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from sklearn.gaussian_process import GaussianProcessRegressor
 import matplotlib.pyplot as plt
-from Environment.FireFront import WildfireSimulator
+from Environment.GroundTruths.FireFront import WildfireSimulator
 import multiprocessing
 
 from Environment.groundtruth import GroundTruth
