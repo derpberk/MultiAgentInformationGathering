@@ -1,3 +1,6 @@
+import sys
+sys.path.append('.')
+
 from Environment.EnvironmentCreation import generate_WQ_env
 import numpy as np
 from CustomDQNImplementation.RainbowDQL.Agent.DuelingDQNAgent import MultiAgentDuelingDQNAgent

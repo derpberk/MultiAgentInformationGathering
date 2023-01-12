@@ -73,7 +73,9 @@ class StaticIGEnv:
 		else:
 			self.action_space = Box(low=-1.0, high=1.0, shape=(2,))
 
-		self.state_space = Box(low=0.0, high=1.0, shape=(4 if reward_type == 'Uncertainty' else 5, *self.navigation_map.shape))
+		# Create the observation space #
+		self.observation_space = Box(low=0.0, high=1.0, shape=(4 if reward_type == 'Uncertainty' else 5, *self.navigation_map.shape))
+		
 		self.fig = None
 	
 		

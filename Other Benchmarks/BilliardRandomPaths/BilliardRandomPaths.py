@@ -14,7 +14,7 @@ RENDER_PATH = False
 env = generate_WQ_env()
 
 for run in range(RUNS):
-    
+     
     # Test a random agent #
     env.reset()
     done = {i: False for i in range(env.number_of_agents)}
