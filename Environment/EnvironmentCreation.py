@@ -1,8 +1,8 @@
 
 """ These functions generate a environment according to the design cases. """
-from Environment.StaticIGEnvironments import StaticIGEnv
-from Environment.GroundTruths.ShekelGroundTruth import Shekel
-from Environment.GroundTruths.FireFront import WildfireSimulator
+from StaticIGEnvironments import StaticIGEnv
+from GroundTruths.ShekelGroundTruth import Shekel
+from GroundTruths.FireFront import WildfireSimulator
 
 import numpy as np
 
@@ -36,7 +36,7 @@ def generate_WQ_env(reward_type : str) -> StaticIGEnv:
     
     return env
 
-def generate_FF_env(reward_type : str):
+def generate_FF_env(reward_type : str) -> StaticIGEnv:
 
     """ Generates an environment for the FireFront surveillance """
     
@@ -64,3 +64,14 @@ def generate_FF_env(reward_type : str):
 				 )
     
     return env
+
+if __name__ == '__main__':
+
+	environment = generate_FF_env('KL')
+
+	environment.reset()
+	environment.render()
+
+	for i in range(10):
+		environment.step({j: environment.action_space.sample() for j in range(environment.number_of_agents)})
+		environment.render()

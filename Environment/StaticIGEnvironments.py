@@ -27,6 +27,7 @@ class StaticIGEnv:
 				 reward_type: str,
 				 # Default parameters #
 				 number_of_movements = 8,
+				 agent_size = 1
 				 ) -> None:
 	
 		self.number_of_agents = number_of_vehicles
@@ -38,6 +39,7 @@ class StaticIGEnv:
 							max_travel_distance=max_travel_distance,
 							navigation_map=navigation_map,
 							number_of_agents=number_of_vehicles,
+							agent_size=agent_size,
 							)
 
 		# Inherit the benchmark
@@ -316,7 +318,7 @@ if __name__ == "__main__":
 	env = StaticIGEnv(number_of_vehicles = N,
 				 		navigation_map = nav_map,
 				 		max_travel_distance = 100,
-				 		initial_vehicle_positions = np.array([[20,20],[25,25],[30,30],[10,10]]),
+				 		initial_vehicle_positions = np.array([[20,20],[25,25],[15,15],[10,10]]),
 				 		movement_type = "DISCRETE",
 						movement_limits = (3,8),
 						benchmark = gt,
@@ -328,6 +330,7 @@ if __name__ == "__main__":
 						reward_type = "KL",
 						# Default parameters #
 						number_of_movements = 8,
+						agent_size=1
 				 )
 	
 	# Test a random agent #

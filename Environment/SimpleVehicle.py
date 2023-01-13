@@ -9,7 +9,8 @@ class Vehicle:
 				vehicle_id: Union[int, str], 
 				initial_position: np.ndarray,
 				navigation_map: np.ndarray,
-				max_travel_distance: float):
+				max_travel_distance: float,
+				agent_size = 1):
 
 		# Set the initial position #
 		self.initial_position = initial_position
@@ -24,6 +25,9 @@ class Vehicle:
 		# The travelled distance #
 		self.distance = 0
 		self.max_travel_distance = max_travel_distance
+		# The agent size
+		self.agent_size = agent_size
+
 		# Number of invalid movements
 		self.collisions = 0
 		self.wps = []
@@ -78,11 +82,29 @@ class Vehicle:
 		upper_bound = np.ceil(position).astype(int)
 
 		# Condition for colliding
-		collide_condition = self.navigation_map[lower_bound[0], lower_bound[1]] == 0 or self.navigation_map[upper_bound[0], upper_bound[1]] == 0 or \
-							self.navigation_map[lower_bound[0], upper_bound[1]] == 0 or self.navigation_map[upper_bound[0], lower_bound[1]] == 0
+		if self.agent_size <= 1:
+			collide_condition = self.navigation_map[lower_bound[0], lower_bound[1]] == 0 or self.navigation_map[upper_bound[0], upper_bound[1]] == 0 or \
+								self.navigation_map[lower_bound[0], upper_bound[1]] == 0 or self.navigation_map[upper_bound[0], lower_bound[1]] == 0
+		else:
+			# Compute a circular neighborhood around the agent of size agent_size. If there is an obstacle, then flag up the collision
+			collide_condition = self.compute_collision_condition(self.navigation_map, position, self.agent_size)
 
 		if out_bounds_condition or collide_condition:
 			return False
 		else:
 			return True
 
+	@staticmethod
+	def compute_collision_condition(navigation_map, position, size):
+		""" Compute the circular mask """
+
+		px, py = position.astype(int)
+
+		# State - coverage area #
+		x = np.arange(0, navigation_map.shape[0])
+		y = np.arange(0, navigation_map.shape[1])
+
+		# Compute the circular mask (area) of the state 3 #
+		mask = (x[np.newaxis, :] - px) ** 2 + (y[:, np.newaxis] - py) ** 2 <= size ** 2
+
+		return any(navigation_map[mask.T] == 0)
