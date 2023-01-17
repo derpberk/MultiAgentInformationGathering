@@ -1,8 +1,10 @@
+import sys
+sys.path.append('.')
 
 """ These functions generate a environment according to the design cases. """
-from StaticIGEnvironments import StaticIGEnv
-from GroundTruths.ShekelGroundTruth import Shekel
-from GroundTruths.FireFront import WildfireSimulator
+from Environment.StaticIGEnvironments import StaticIGEnv
+from Environment.GroundTruths.ShekelGroundTruth import Shekel
+from Environment.GroundTruths.FireFront import WildfireSimulator
 
 import numpy as np
 
@@ -19,7 +21,7 @@ def generate_WQ_env(reward_type : str) -> StaticIGEnv:
 
     env = StaticIGEnv(number_of_vehicles = N,
 				 		navigation_map = nav_map,
-				 		max_travel_distance = 100,
+				 		max_travel_distance = 45,
 				 		initial_vehicle_positions = np.array([[20,20],[25,25],[30,30],[10,10]]),
 				 		movement_type = "DISCRETE",
 						movement_limits = (3,8),

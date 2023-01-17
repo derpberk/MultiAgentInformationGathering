@@ -11,7 +11,7 @@ reward_type = "KL"
 env = generate_WQ_env(reward_type=reward_type)
 
 """ Set the configuration for the training """
-# Create our RLlib Trainer.
+
 agent = MultiAgentDuelingDQNAgent(
 	env=env,
 	memory_size=500_000,

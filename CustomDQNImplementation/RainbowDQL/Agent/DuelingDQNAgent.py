@@ -254,7 +254,7 @@ class MultiAgentDuelingDQNAgent:
 				next_state, reward, done = self.process_action(action, done)
 
 				# Store evry experience #
-				for agent_id, agent_state in next_state.items():
+				for agent_id in next_state.keys():
 
 					# Store every observation for every agent
 					self.transition = [state[agent_id],

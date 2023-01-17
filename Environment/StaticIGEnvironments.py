@@ -132,7 +132,7 @@ class StaticIGEnv:
 
 		# Conform the map of the surrogate model for the state with the final update #
 		self.mu[self.visitable_positions[:, 0],
-				self.visitable_positions[:, 1]] = mu_array
+				self.visitable_positions[:, 1]] = mu_array[:,0]
 
 		self.sigma[self.visitable_positions[:, 0],
 					self.visitable_positions[:, 1]] = sigma_array
@@ -186,7 +186,7 @@ class StaticIGEnv:
 
 		# Move the fleet #
 		result = self.fleet.move_fleet_sincro(movements)
-		self.collisions += np.sum([1 if res == "COLLISION" else 0 for res in result])
+		self.collisions += np.sum([1 if res == "COLLISION" else 0 for res in result.values()])
 
 		# Take new measurements #
 		new_measurements = self.take_measurements()
@@ -204,7 +204,9 @@ class StaticIGEnv:
 		dones = {i: False for i in range(self.number_of_agents)}
 		for veh_id, vehicle in enumerate(self.fleet.vehicles):
 			dones[veh_id] = vehicle.distance > vehicle.max_travel_distance or self.collisions > self.max_collisions
-			self.active_agents[veh_id] = dones[veh_id]
+			self.active_agents[veh_id] = not dones[veh_id]
+
+		dones["__all__"] = any(list(dones.values()))
 		 
 		return self.state, reward, dones, {}
 
@@ -237,7 +239,7 @@ class StaticIGEnv:
 										self.fleet.compute_fleet_map(vehicles = i)[np.newaxis],
 										self.fleet.compute_fleet_map(vehicles = [j for j in range(self.number_of_agents) if j != i])[np.newaxis]
 			))
-						for i in range(self.number_of_agents) if self.active_agents[i]}
+						for i in range(self.number_of_agents)}
 		
 		else:
 			states = {i: np.concatenate((self.navigation_map[np.newaxis],
@@ -246,11 +248,11 @@ class StaticIGEnv:
 										self.fleet.compute_fleet_map(vehicles = i)[np.newaxis],
 										self.fleet.compute_fleet_map(vehicles = [j for j in range(self.number_of_agents) if j != i])[np.newaxis]
 			))
-						for i in range(self.number_of_agents) if self.active_agents[i]}			
+						for i in range(self.number_of_agents)}			
 
 
 
-		return 
+		return states
 
 	
 	def render(self):
