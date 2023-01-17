@@ -1,1 +1,5 @@
 *.pyc
+__pycache__/
+events.out.*
+.DS_Store/
+*.pth
