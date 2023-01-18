@@ -1,5 +1,6 @@
 *.pyc
 __pycache__/
 events.out.*
-.DS_Store/
+.DS_Store
 *.pth
+.DS_Store
