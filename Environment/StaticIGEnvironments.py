@@ -132,10 +132,10 @@ class StaticIGEnv:
 
 		# Conform the map of the surrogate model for the state with the final update #
 		self.mu[self.visitable_positions[:, 0],
-				self.visitable_positions[:, 1]] = mu_array[:,0]
+				self.visitable_positions[:, 1]] = mu_array.flatten()
 
 		self.sigma[self.visitable_positions[:, 0],
-					self.visitable_positions[:, 1]] = sigma_array
+					self.visitable_positions[:, 1]] = sigma_array.flatten()
 
 		self.intermediate_model_metrics = intermediate_model_metrics
 
