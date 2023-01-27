@@ -1,5 +1,6 @@
 import sys
 sys.path.append('.')
+sys.path.append('..')
 
 from Environment.EnvironmentCreation import generate_WQ_env
 import numpy as np
@@ -9,8 +10,6 @@ from CustomDQNImplementation.RainbowDQL.Agent.DuelingDQNAgent import MultiAgentD
 reward_type = "KL"
 
 env = generate_WQ_env(reward_type=reward_type)
-
-""" Set the configuration for the training """
 
 agent = MultiAgentDuelingDQNAgent(
 	env=env,
@@ -34,4 +33,25 @@ agent = MultiAgentDuelingDQNAgent(
 	train_every=5,
 )
 
-agent.train(100_000)
+agent.load_model('./runs/BestPolicy.pth')
+
+agent.epsilon = 0.0
+
+for e in range(20):
+
+    s = env.reset()
+    env.render()
+    done = {i:False for i in range(4)}
+
+    while not all(done.values()):
+        
+        a = agent.select_action(s)
+        s,r,done,_ = env.step(a)
+        
+        env.render()
+        print(r)
+
+        
+
+        
+        
