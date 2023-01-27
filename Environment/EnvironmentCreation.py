@@ -50,7 +50,7 @@ def generate_FF_env(reward_type : str) -> StaticIGEnv:
 
     env = StaticIGEnv(number_of_vehicles = N,
 				 		navigation_map = nav_map,
-				 		max_travel_distance = 150,
+				 		max_travel_distance = 200,
 				 		initial_vehicle_positions = np.array([[20,20],[25,25],[30,30],[10,10]]),
 				 		movement_type = "DISCRETE",
 						movement_limits = (1,8),
@@ -58,7 +58,7 @@ def generate_FF_env(reward_type : str) -> StaticIGEnv:
 						max_collisions = 10,
 						# Model parameters #
 						kernel_type = "Matern",
-						lengthscale = 8.5,
+						lengthscale = 3.5,
 						# Reward style #
 						reward_type = reward_type,
 						# Default parameters #
@@ -74,6 +74,9 @@ if __name__ == '__main__':
 	environment.reset()
 	environment.render()
 
-	for i in range(10):
-		environment.step({j: environment.action_space.sample() for j in range(environment.number_of_agents)})
+	for i in range(200):
+
+		if i % 2 == 0:
+			action = {j: environment.action_space.sample() for j in range(environment.number_of_agents)}
+		environment.step(action)
 		environment.render()
