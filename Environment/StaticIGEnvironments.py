@@ -61,9 +61,9 @@ class StaticIGEnv:
 		self.intermediate_model_metrics = None
 
 		# Create the model #
-		kernel = Matern(length_scale=lengthscale) if kernel_type == 'Matern' else RBF(length_scale=lengthscale)
-		self.kernel = K(1.0) * kernel + W(0.001)
-		self.model = GaussianProcessRegressor(kernel=self.kernel, optimizer=None, alpha=0.001)
+		kernel = Matern(length_scale=lengthscale, length_scale_bounds=(0.5, 10)) if kernel_type == 'Matern' else RBF(length_scale=lengthscale, length_scale_bounds=(0.5, 10))
+		self.kernel = kernel #+ W(0.001, noise_level_bounds=(1e-10, 0.01))
+		self.model = GaussianProcessRegressor(kernel=self.kernel, alpha=0.0001)
 		# Model variables 
 		self.mu = np.zeros_like(self.navigation_map)
 		self.sigma = np.zeros_like(self.navigation_map)

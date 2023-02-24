@@ -1,3 +1,6 @@
+import sys
+sys.path.append('.')
+
 from Environment.EnvironmentCreation import generate_FF_env
 import numpy as np
 from CustomDQNImplementation.RainbowDQL.Agent.DuelingDQNAgent import MultiAgentDuelingDQNAgent
@@ -11,7 +14,7 @@ env = generate_FF_env(reward_type=reward_type)
 # Create our RLlib Trainer.
 agent = MultiAgentDuelingDQNAgent(
 	env=env,
-	memory_size=500_000,
+	memory_size=10_000,
 	batch_size=64,
 	target_update=1000,
 	epsilon_values=[1.0, 0.05],
@@ -28,7 +31,7 @@ agent = MultiAgentDuelingDQNAgent(
 	logdir='./runs',
 	log_name=f"Firefront_DDQL_{reward_type}_experiment",
 	save_every=5000,
-	train_every=1,
+	train_every=5,
 )
 
 agent.train(50_000)
